@@ -1,0 +1,45 @@
+{
+  "name": "nim-codex",
+  "version": "0.0.1-alpha",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "bin": {
+    "nim-codex": "dist/cli.js"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "start": "node dist/cli.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "^2.4.0",
+    "ajv": "^8.20.0",
+    "bottleneck": "^2.19.5",
+    "diff": "^9.0.0",
+    "dotenv": "^18.0.9",
+    "fast-glob": "^3.3.3",
+    "graphology": "^0.26.0",
+    "ignore": "^7.0.14",
+    "ink": "^5.2.1",
+    "ink-text-input": "^6.0.0",
+    "openai": "^7.45.1",
+    "react": "^18.3.1",
+    "strip-ansi": "^7.2.0",
+    "tree-sitter-wasms": "^0.1.13",
+    "web-tree-sitter": "^0.25.10"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "^18.3.31",
+    "ink-testing-library": "^4.0.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.12"
+  }
+}
