@@ -3,7 +3,7 @@ import { Box, Text, useApp, useStdin, useStdout } from 'ink';
 import type { UiController } from './controller.js';
 import { DiffBlock } from './DiffBlock.js';
 import { ToolCallBadge } from './ToolCallBadge.js';
-import { StatusBar, ActivityBar } from './StatusBar.js';
+import { StatusBar } from './StatusBar.js';
 import { InputBox } from './InputBox.js';
 import { Banner } from './Banner.js';
 import { theme } from './theme.js';
@@ -63,16 +63,14 @@ export function App({ controller, version }: { controller: UiController; version
   const thinkingRows = state.showThinking && state.thinkingStream ? 2 : 0;
   const streamRows = state.streaming ? queueFocus ? Math.min(3, Math.max(0, contentRows - queueRows - toolRows - thinkingRows - 5)) : 3 : 0;
   const baseDockRows = 5 + commandRows + queueRows + streamRows + thinkingRows + toolRows;
-  const showMascot = columns >= 11 && contentRows - 1 >= baseDockRows + 4;
   const sideRows = Math.max(3, Math.min(contentRows - 2, 14));
   const approvalRows = Math.max(3, Math.min(contentRows - 2, 16));
-  const minDockRows = state.approval ? approvalRows + 1 : state.rewindPoints ? Math.min(contentRows,12)+1 : state.sidePanelOpen ? sideRows + 1 : state.modelPickerOpen || state.effortPickerOpen || state.resumeSessions ? 13 : baseDockRows + (showMascot ? 4 : 0);
+  const minDockRows = state.approval ? approvalRows + 1 : state.rewindPoints ? Math.min(contentRows,12)+1 : state.sidePanelOpen ? sideRows + 1 : state.modelPickerOpen || state.effortPickerOpen || state.resumeSessions ? 13 : baseDockRows;
   return <PinnedLayout entries={entries} columns={columns} rows={rows} minDockRows={minDockRows} header={header} headerRows={header ? headerRows : 0}>
     {state.approval ? <ApprovalPanel key={state.approval.id} request={state.approval} columns={columns} maxRows={approvalRows} onDecision={allowed => controller.respondApproval(allowed)} onCancel={() => controller.cancel()} /> : state.rewindPoints ? <RewindPicker points={state.rewindPoints} maxRows={Math.max(4,Math.min(contentRows-1,12))} onSelect={(id,scope)=>{void controller.submit(`/rewind ${id} ${scope}`);}} onCancel={()=>controller.cancel()} /> : state.sidePanelOpen && state.sideQuestion ? <SideQuestionPanel key={state.sideQuestion.question} question={state.sideQuestion} pending={!!state.sideBusy} mainBusy={state.busy} columns={columns} maxRows={sideRows} onHide={() => controller.hideSideQuestion()} onCancel={() => controller.cancelSideQuestion()} onClear={() => controller.clearSideQuestions()} /> : state.modelPickerOpen ? <ModelPicker model={state.model} models={controller.availableModels} maxRows={Math.min(contentRows - 2, 12)} onSelect={model => { void controller.submit(`/model ${model}`); }} onCancel={() => controller.cancel()} /> : state.effortPickerOpen ? <EffortPicker model={state.model} effort={state.effort ?? 'auto'} maxRows={Math.min(contentRows - 2, 12)} onSelect={effort => { void controller.submit(`/effort ${effort}`); }} onCancel={() => controller.cancel()} /> : state.resumeSessions ? <SessionPicker sessions={state.resumeSessions} currentId={state.sessionId} pending={state.busy} error={state.resumeError} maxRows={Math.max(4, Math.min(contentRows - 2, 12))} onSelect={id => { void controller.submit(`/resume ${id}`); }} onCancel={() => controller.cancel()} /> : <>
     {!!thinkingRows && <Box height={thinkingRows} overflow="hidden"><Text color={theme.borderMuted} italic wrap="truncate-end">💭 Thinking: {safeText(state.thinkingStream ?? '').replace(/[\r\n\t]+/g, ' ')}</Text></Box>}
     {!!streamRows && <Box height={streamRows} overflow="hidden"><Text color={theme.textPrimary}>{state.streaming.slice(-Math.max(30, columns * 2)).split('\n').slice(-streamRows).join('\n')}</Text></Box>}
     {showTool && state.lastTool && <ToolCallBadge tool={state.lastTool} expanded={expanded && !queueFocus} />}
-    <ActivityBar state={state} showMascot={showMascot} columns={columns} />
     {showQueue && <Box flexDirection="column">
       <Text color={theme.brandAccent} wrap="truncate">Queued {state.queued}/20{state.queuePaused ? ' · paused' : ''} · ↑ choose · Enter edit · /queue</Text>
       {state.queue?.slice(queueStart, queueStart + queueVisible).map(item => <Text key={item.id} color={item.id === state.selectedQueuedId ? theme.brand : theme.borderMuted} wrap="truncate">{item.id === state.selectedQueuedId ? '› ' : '  '}#{item.id} {safeText(item.text).replace(/[\n\t]/g, ' ↵ ')}</Text>)}

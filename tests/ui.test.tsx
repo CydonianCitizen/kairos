@@ -24,7 +24,7 @@ it('summarizes model, effort, NIM, graph, queue and session in one footer line',
  expect(frame.trimEnd().endsWith('/help for commands')).toBe(true);
  expect(frame.indexOf('/help for commands')).toBeGreaterThanOrEqual(100);
 });
-it('shows Kairon above the input and keeps the footer reachable when the terminal shrinks', async () => {
+it('keeps the input and footer reachable and avoids roaming mascot above the input when the terminal shrinks', async () => {
   const root = await mkdtemp(join(tmpdir(), 'kairos-mascot-'));
   const client = new class extends EventEmitter { async stream() { throw new Error('Mascot must stay local'); } }();
   const controller = new UiController(new AgentLoop({ workspace: root, client, session: false }));
@@ -40,8 +40,8 @@ it('shows Kairon above the input and keeps the footer reachable when the termina
     });
     await controller.start(); await tick();
     const output = safeText(writes.join(''));
-    expect(output).toContain('▀█████▀');
-    expect(output.lastIndexOf('▀█████▀')).toBeLessThan(output.lastIndexOf('❯'));
+    expect(output).not.toContain('▀█████▀');
+    expect(output).toContain('Ask a question');
     writes.length = 0;
     stdout.rows = 10; stdout.emit('resize'); await tick();
     const resizedOutput = safeText(writes.join(''));
