@@ -101,3 +101,34 @@ it('retries a failed plugin setup without retaining partially registered tools',
   expect(await host.execute('extension_tools_batch', { calls: [{ name: 'retry', arguments: {} }] })).toMatchObject({ ok: true });
   await host.close();
 });
+
+it('resolves and activates skills using $ syntax in prompts and handles skill activation lifecycle', async () => {
+  const r = await setup();
+  const globalDir = await mkdtemp(join(tmpdir(), 'nim-skills-dollar-'));
+  roots.push(globalDir);
+  await mkdir(join(globalDir, 'caveman'), { recursive: true });
+  await writeFile(join(globalDir, 'caveman', 'SKILL.md'), '---\nname: caveman\ndescription: Terse mode\n---\nBe brief.');
+  await mkdir(join(globalDir, 'ponytail'), { recursive: true });
+  await writeFile(join(globalDir, 'ponytail', 'SKILL.md'), '---\nname: ponytail\ndescription: Minimal clean\n---\nMinimal code.');
+
+  const host = await ExtensionHost.load(r, false, { globalSkillDirs: [globalDir] });
+  expect(host.resolveSkillsFromPrompt('fai refactor con $caveman e $ponytail')).toEqual(['caveman', 'ponytail']);
+  expect(host.resolveSkillsFromPrompt('$CAVEMAN solo')).toEqual(['caveman']);
+  expect(host.resolveSkillsFromPrompt('costa $20 e usa $HOME')).toEqual([]);
+
+  host.activateSkill('$caveman');
+  expect(host.activeSkillNames).toEqual(['caveman']);
+  expect(host.context()).toContain('User-selected skill caveman');
+  expect(host.context()).toContain('Be brief.');
+
+  host.clearActiveSkills();
+  expect(host.activeSkillNames).toEqual([]);
+  expect(host.context()).not.toContain('User-selected skill caveman');
+
+  host.activateSkill('ponytail');
+  expect(host.activeSkillNames).toEqual(['ponytail']);
+  host.deactivateSkill('$ponytail');
+  expect(host.activeSkillNames).toEqual([]);
+
+  await host.close();
+});

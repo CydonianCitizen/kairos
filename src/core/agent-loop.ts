@@ -505,6 +505,7 @@ export class AgentLoop extends EventEmitter<AgentEvents> {
   clear(): void {
     this.assertIdle();
     this.history = []; this.memory = ''; this.sideHistory = [];
+    this.extensions?.clearActiveSkills();
     this.persistChange();
   }
 
@@ -570,6 +571,10 @@ export class AgentLoop extends EventEmitter<AgentEvents> {
       signal?.throwIfAborted();
       await this.ready();
       await this.extensions?.prepare(this.mode, signal);
+      const mentionedSkills = this.extensions?.resolveSkillsFromPrompt(prompt) ?? [];
+      for (const skill of mentionedSkills) {
+        this.extensions?.activateSkill(skill);
+      }
       await this.refresh(signal);
       this.references = { context: '', references: [], chars: 0, maxChars: Math.min(12000, Math.floor(this.maxContextChars / 4)) };
       this.emit('onContextUpdate', this.contextSnapshot);

@@ -165,6 +165,15 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
    const term=input.slice(7).toLowerCase();
    return (this.agent.extensions?.skillNames??[]).filter(name=>name.toLowerCase().includes(term)).map(name=>`/skill ${name}`);
   }
+  const skillMatch=input.match(/(?:^|[\s([{\`"'])\$([^\s"'`]*)$/);
+  if(skillMatch){
+   const term=skillMatch[1]!.toLowerCase();
+   return (this.agent.extensions?.skillNames??[])
+    .filter(name=>name.toLowerCase().includes(term))
+    .sort()
+    .slice(0,8)
+    .map(name=>`$${name}`);
+  }
   const match=input.match(/(?:^|\s)@([^\s]*)$/);const graph=this.agent.graphSnapshot;if(!match||!graph)return [];
   const prefix=match[1]!.match(/^(file:|symbol:)/)?.[1]??'';
   const term=match[1]!.slice(prefix.length).toLowerCase();const names=new Set<string>();
@@ -206,7 +215,26 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
    }
    await this.sendPrompt(args);return;
   }
-  if(!prompt.startsWith('/')||prompt.includes('\n')){await this.sendPrompt(prompt);return;}
+  if(!prompt.startsWith('/')||prompt.includes('\n')){
+   const singleSkillMatch=prompt.match(/^\$([a-zA-Z0-9_-]+)$/);
+   if(singleSkillMatch&&this.agent.extensions){
+    const skillName=this.agent.extensions.skillNames.find(n=>n.toLowerCase()===singleSkillMatch[1]!.toLowerCase());
+    if(skillName){
+     this.agent.extensions.activateSkill(skillName);
+     this.add('info',`Skill $${skillName} activated for the next turn.`);
+     return;
+    }
+   }
+   const matchedSkills=this.agent.extensions?.resolveSkillsFromPrompt(prompt)??[];
+   for(const skill of matchedSkills){
+    this.agent.extensions?.activateSkill(skill);
+   }
+   if(matchedSkills.length>0){
+    this.add('info',`Skill activated: ${matchedSkills.map(s=>'$'+s).join(', ')}`);
+   }
+   await this.sendPrompt(prompt);
+   return;
+  }
   const [command,...parts]=prompt.split(/\s+/);const args=parts.join(' ');
   if(command==='/help'){this.add('info',HELP);return;}
   if(command==='/tasks'&&!args.startsWith('start ')){
@@ -275,11 +303,11 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
       break;
     }
     case '/skill':{
-      const name=args.trim();
+      const name=args.trim().replace(/^\$/, '');
       if(!name)throw new Error('Use /skill SKILL_NAME');
       if(!this.agent.extensions)throw new Error('No skills configured');
       this.agent.extensions.activateSkill(name);
-      this.add('info',`Skill ${name} added to the next turn context.`);
+      this.add('info',`Skill $${name} added to the next turn context.`);
       break;
     }
     case '/extensions':this.add('info',this.agent.extensions?.commands.join('\n')||'No plugin commands.');break;

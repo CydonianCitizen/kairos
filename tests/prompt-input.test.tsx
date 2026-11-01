@@ -114,3 +114,11 @@ it('sanitizes history text before loading it into the editable draft', async () 
  app.stdin.write('\x12'); await tick(); app.stdin.write('\r'); await tick(); app.stdin.write('\r'); await tick();
  expect(submit).toHaveBeenCalledExactlyOnceWith('previous\nprompt');
 });
+it('completes $skill suggestions with Tab', async () => {
+ const { app, controller, submit } = await setup();
+ vi.spyOn(controller, 'suggestions').mockImplementation(prefix => prefix.endsWith('$ca') ? ['$caveman'] : []);
+ app.stdin.write('use $ca'); await tick();
+ app.stdin.write('\t'); await tick();
+ app.stdin.write('\r'); await tick();
+ expect(submit).toHaveBeenCalledExactlyOnceWith('use $caveman ');
+});

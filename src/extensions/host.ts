@@ -267,8 +267,35 @@ export class ExtensionHost {
   get skillsList(): { name: string; description: string }[] { return [...this.skills.values()].map(s => ({ name: s.name, description: s.description })); }
 
   activateSkill(name: string): void {
-    if (!this.skills.has(name)) throw new Error(`Unknown skill: ${name}`);
-    this.activeSkills.add(name);
+    const clean = name.replace(/^\$/, '');
+    const found = [...this.skills.keys()].find(k => k.toLowerCase() === clean.toLowerCase());
+    if (!found) throw new Error(`Unknown skill: ${name}`);
+    this.activeSkills.add(found);
+  }
+
+  deactivateSkill(name: string): void {
+    const clean = name.replace(/^\$/, '');
+    const found = [...this.activeSkills].find(k => k.toLowerCase() === clean.toLowerCase());
+    if (found) this.activeSkills.delete(found);
+  }
+
+  clearActiveSkills(): void {
+    this.activeSkills.clear();
+  }
+
+  get activeSkillNames(): string[] {
+    return [...this.activeSkills];
+  }
+
+  resolveSkillsFromPrompt(prompt: string): string[] {
+    const matches: string[] = [];
+    const regex = /(?:^|[\s([{\`"'])\$([a-zA-Z0-9_-]+)/g;
+    for (const match of prompt.matchAll(regex)) {
+      const candidate = match[1]!;
+      const found = [...this.skills.keys()].find(k => k.toLowerCase() === candidate.toLowerCase());
+      if (found) matches.push(found);
+    }
+    return [...new Set(matches)];
   }
 
   get serverNames(): string[] { return [...this.servers.keys()]; }

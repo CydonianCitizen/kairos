@@ -94,7 +94,11 @@ export function InputBox({ controller, busy, onToggleDetails, maxSuggestions = 6
       if (selecting) { controller.beginQueueEdit(state.selectedQueuedId!, draft); return; }
       if (suggestions.length) {
         const choice = suggestions[selected % suggestions.length]!;
-        const text = /^\/\S*$/.test(prefix) ? choice + ' ' : prefix.replace(/@[^\s]*$/, `@${choice} `);
+        const text = /^\/\S*$/.test(prefix)
+          ? choice + ' '
+          : /\$[^\s]*$/.test(prefix)
+            ? prefix.replace(/\$[^\s]*$/, choice.startsWith('$') ? `${choice} ` : `$${choice} `)
+            : prefix.replace(/@[^\s]*$/, `@${choice} `);
         setActiveDraft({ text: text + active.text.slice(active.cursor), cursor: text.length }); setSelected(0);
       } else onToggleDetails();
       return;

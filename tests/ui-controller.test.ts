@@ -138,7 +138,7 @@ it('includes loaded plugin commands in the slash menu', async () => {
     expect(controller.getSnapshot().history.at(-1)?.text).toBe('Hello from plugin');
   } finally { await controller.close(); }
 });
-it('lists skills and autocompletes /skill commands', async () => {
+it('lists skills and autocompletes /skill commands and $skill syntax', async () => {
   const root = await mkdtemp(join(tmpdir(), 'kairos-skills-menu-')); roots.push(root);
   await mkdir(join(root, '.nim', 'skills', 'caveman'), { recursive: true });
   await writeFile(join(root, '.nim', 'skills', 'caveman', 'SKILL.md'), '---\nname: caveman\ndescription: Terse voice\n---\nSpeak briefly.');
@@ -148,11 +148,16 @@ it('lists skills and autocompletes /skill commands', async () => {
   try {
     await controller.start();
     expect(controller.suggestions('/skill ')).toEqual(['/skill caveman']);
+    expect(controller.suggestions('$ca')).toEqual(['$caveman']);
+    expect(controller.suggestions('prompt $ca')).toEqual(['$caveman']);
     await controller.submit('/skills');
     expect(controller.getSnapshot().history.at(-1)?.text).toContain('caveman');
     expect(controller.getSnapshot().history.at(-1)?.text).toContain('Terse voice');
+    await controller.submit('$caveman');
+    expect(controller.getSnapshot().history.at(-1)?.text).toBe('Skill $caveman activated for the next turn.');
+    expect(extensions.activeSkillNames).toContain('caveman');
     await controller.submit('/skill caveman');
-    expect(controller.getSnapshot().history.at(-1)?.text).toBe('Skill caveman added to the next turn context.');
+    expect(controller.getSnapshot().history.at(-1)?.text).toBe('Skill $caveman added to the next turn context.');
   } finally { await controller.close(); }
 });
 it('parses CLI flags strictly and supports help without credentials', () => {
