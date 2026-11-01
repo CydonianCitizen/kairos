@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "checkedAt": "2026-11-01T00:20:30.036Z",
+  "endpoint": "https://integrate.api.nvidia.com/v1",
+  "models": [
+    {
+      "model": "mistralai/mistral-large-4-1t-a52b",
+      "streaming": {
+        "status": "passed",
+        "durationMs": 3493,
+        "detail": "Complete streamed text response."
+      },
+      "systemPrompt": {
+        "status": "passed",
+        "durationMs": 3493,
+        "detail": "The system instruction marker was followed."
+      },
+      "tools": {
+        "status": "passed",
+        "durationMs": 13294,
+        "detail": "Batch call, arguments and tool result continuation checked."
+      },
+      "efforts": {
+        "none": {
+          "status": "passed",
+          "durationMs": 8804,
+          "detail": "The system instruction marker was followed."
+        },
+        "high": {
+          "status": "passed",
+          "durationMs": 5828,
+          "detail": "The system instruction marker was followed."
+        }
+      }
+    }
+  ]
+}

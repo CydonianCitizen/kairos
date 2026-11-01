@@ -3,6 +3,8 @@ import Bottleneck from 'bottleneck';
 import OpenAI from 'openai';
 import type { ChatCompletion, ChatCompletionChunk, ChatCompletionCreateParamsNonStreaming } from 'openai/resources/chat/completions';
 import { DEFAULT_MODEL, MODELS, NIM_BASE_URL } from '../config/models.js';
+import { effortParameters, type Effort } from '../config/effort.js';
+import { acquireNimLease, type NimLease } from './nim-pacing.js';
 
 const limiter = new Bottleneck({ maxConcurrent: 1, minTime: 1600 });
 let lastStart = 0;
@@ -11,43 +13,63 @@ export interface WaitEvent { reason: 'pacing' | 'retry'; remainingMs: number; re
 interface NimEvents {
   onRateLimitWait: [WaitEvent];
   onTokenStream: [string];
+  onReasoningStream: [string];
 }
 export type NimResult<T> = { ok: true; value: T } | { ok: false; error: string; status?: number };
-export type CompletionInput = Omit<ChatCompletionCreateParamsNonStreaming, 'model' | 'stream'> & { model?: string };
+export type CompletionInput = Omit<ChatCompletionCreateParamsNonStreaming, 'model' | 'stream'> & { model?: string; effort?: Effort; chat_template_kwargs?: Record<string, unknown> };
 export interface NimClientOptions {
   apiKey?: string;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
   parallelToolCalls?: boolean;
+  rateLimitDirectory?: string;
 }
 
 /** All instances share one FIFO limiter in this process. SDK retries are disabled. */
 export class NimClient extends EventEmitter<NimEvents> {
+  private readonly options: NimClientOptions;
   private readonly sdk: OpenAI;
+  private readonly timeoutMs: number;
   private readonly parallelToolCalls?: boolean;
+  private readonly apiKey: string;
+  private lease?: NimLease;
   constructor(options: NimClientOptions = {}) {
     super();
     const apiKey = options.apiKey ?? process.env.NVIDIA_API_KEY;
     if (!apiKey?.trim()) throw new Error('NVIDIA_API_KEY is required');
+    this.apiKey = apiKey;
+    this.timeoutMs = options.timeoutMs ?? Number(process.env.NVIDIA_TIMEOUT_MS ?? 300000);
+    if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1 || this.timeoutMs > 2147483647) throw new Error('NVIDIA_TIMEOUT_MS / timeoutMs must be a positive integer up to 2147483647');
+    this.options = { ...options, apiKey, timeoutMs: this.timeoutMs };
     this.parallelToolCalls = options.parallelToolCalls;
     const transport = options.fetch ?? globalThis.fetch;
     this.sdk = new OpenAI({ apiKey, baseURL: NIM_BASE_URL, maxRetries: 0,
-      timeout: options.timeoutMs ?? 60000, fetch: async (input, init) => {
+      timeout: this.timeoutMs, fetch: async (input, init) => {
         // Measure actual HTTP dispatch, not SDK preparation (which takes variable time).
         await this.wait(Math.max(0, lastStart + 1600 - Date.now()), 'pacing', 0, init?.signal ?? undefined);
+        const lease = this.lease;
+        if (!lease) throw new Error('NIM shared rate-limit lease is required before HTTP dispatch');
+        await lease.beforeDispatch(init?.signal ?? undefined, remainingMs => this.emit('onRateLimitWait', { reason: 'pacing', remainingMs, retry: 0 }));
         lastStart = Date.now();
-        return transport(input, init);
+        const started = lastStart;
+        try { return await transport(input, init); }
+        finally { await lease.deferUntil(started + 1600); }
       } });
   }
+
+  fork(): NimClient { return new NimClient(this.options); }
 
   private params(input: CompletionInput): ChatCompletionCreateParamsNonStreaming {
     const model = input.model ?? DEFAULT_MODEL;
     const config = MODELS.find(entry => entry.id === model);
-    const { parallel_tool_calls: requested, ...rest } = input;
+    const { effort = 'auto', parallel_tool_calls: requested, ...rest } = input;
+    const reasoning = effortParameters(model, effort);
     const parallel = this.parallelToolCalls ?? config?.parallelToolCalls ?? false;
-    return { temperature: config?.temperature ?? 0.2, max_tokens: config?.maxTokens ?? 4096,
+    return { temperature: config?.temperature ?? 0.2, max_tokens: reasoning.reasoning_effort === 'high' ? Math.max(16384, config?.maxTokens ?? 4096) : config?.maxTokens ?? 4096,
       ...(config ? { top_p: config.topP } : {}),
-      ...rest, model, stream: false,
+      ...rest, ...reasoning,
+      ...(reasoning.chat_template_kwargs ? { chat_template_kwargs: { ...input.chat_template_kwargs, ...reasoning.chat_template_kwargs } } : {}),
+      model, stream: false,
       ...(input.tools?.length && parallel ? { parallel_tool_calls: requested ?? true } : {}) };
   }
 
@@ -63,7 +85,7 @@ export class NimClient extends EventEmitter<NimEvents> {
     signal?.throwIfAborted();
   }
 
-  private execute<T>(operation: () => Promise<T>, signal?: AbortSignal, canRetry = () => true): Promise<NimResult<T>> {
+  private execute<T>(operation: () => Promise<T>, signal?: AbortSignal, canRetry = () => true, model?: string): Promise<NimResult<T>> {
     // Bottleneck's own delay happens before the callback; expose it to the UI too.
     const queuedCountdown = setInterval(() => {
       const remainingMs = Math.max(0, lastStart + 1600 - Date.now());
@@ -71,30 +93,58 @@ export class NimClient extends EventEmitter<NimEvents> {
     }, 100);
     return limiter.schedule(async (): Promise<NimResult<T>> => {
       clearInterval(queuedCountdown);
-      for (let retry = 0; ; retry++) {
-        try {
-          signal?.throwIfAborted();
-          return { ok: true, value: await operation() };
-        } catch (error) {
-          const status = error instanceof OpenAI.APIError ? error.status : undefined;
-          const delay = backoffs[retry];
-          if (status === 429 && delay !== undefined && canRetry() && !signal?.aborted) {
-            // Keep this FIFO job active during backoff so other calls cannot bypass the cooldown.
-            const header = error instanceof OpenAI.APIError ? error.headers?.get('retry-after') : null;
-            const seconds = header ? Number(header) : NaN;
-            const retryAfter = header ? (Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now()) : 0;
-            try { await this.wait(Math.max(delay, retryAfter || 0), 'retry', retry + 1, signal); }
-            catch { return { ok: false, error: 'Request cancelled' }; }
-            continue;
+      let lease: NimLease | undefined;
+      try {
+        signal?.throwIfAborted();
+        lease = await acquireNimLease(this.apiKey, this.options.rateLimitDirectory, signal,
+          remainingMs => this.emit('onRateLimitWait', { reason: 'pacing', remainingMs, retry: 0 }));
+        this.lease = lease;
+        for (let retry = 0; ; retry++) {
+          try {
+            signal?.throwIfAborted();
+            const value = await operation();
+            signal?.throwIfAborted();
+            return { ok: true, value };
+          } catch (error) {
+            const status = error instanceof OpenAI.APIError ? error.status : undefined;
+            const delay = backoffs[retry];
+            let cooldown = 0;
+            if (status === 429) {
+              // Keep this FIFO job active during backoff so other calls cannot bypass the cooldown.
+              const header = error instanceof OpenAI.APIError ? error.headers?.get('retry-after') : null;
+              const seconds = header ? Number(header) : NaN;
+              const retryAfter = header ? (Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - Date.now()) : 0;
+              cooldown = Math.max(delay ?? backoffs[backoffs.length - 1]!, retryAfter || 0);
+              await lease.deferUntil(Date.now() + cooldown);
+            }
+            if (status === 429 && delay !== undefined && canRetry() && !signal?.aborted) {
+              try { await this.wait(cooldown, 'retry', retry + 1, signal); }
+              catch { return { ok: false, error: 'Request cancelled' }; }
+              continue;
+            }
+            const coordinatorError=error instanceof OpenAI.APIConnectionError&&error.cause instanceof Error&&error.cause.message.startsWith('NIM shared rate-limit coordinator')?error.cause.message:undefined;
+            const message = coordinatorError??(model && error instanceof OpenAI.APIConnectionTimeoutError
+              ? `NIM ${model}: request timed out after ${this.timeoutMs} ms waiting for a response. Adjust NVIDIA_TIMEOUT_MS if needed; the endpoint may be slow or unavailable.`
+              : error instanceof Error ? error.message : String(error));
+            return { ok: false, error: signal?.aborted ? 'Request cancelled' : message, status };
           }
-          return { ok: false, error: signal?.aborted ? 'Request cancelled' : error instanceof Error ? error.message : String(error), status };
         }
-      }
-    }).finally(() => clearInterval(queuedCountdown));
+      } finally { this.lease = undefined; await lease?.release(); }
+    }).catch((error: unknown): NimResult<T> => ({ ok: false,
+      error: signal?.aborted ? 'Request cancelled' : error instanceof Error ? error.message : String(error) }))
+      .finally(() => clearInterval(queuedCountdown));
   }
 
   complete(input: CompletionInput, signal?: AbortSignal): Promise<NimResult<ChatCompletion>> {
-    return this.execute(() => this.sdk.chat.completions.create(this.params(input), { signal }), signal);
+    return this.execute(() => this.sdk.chat.completions.create(this.params(input), { signal }), signal, () => true, input.model ?? DEFAULT_MODEL);
+  }
+
+  listModels(signal?: AbortSignal): Promise<NimResult<string[]>> {
+    // Discovery is optional metadata: use the same pacing, but fall back instead of retrying.
+    return this.execute(async () => {
+      const page = await this.sdk.models.list({ signal, timeout: 5000 });
+      return page.data.map(model => model.id);
+    }, signal, () => false);
   }
 
   stream(input: CompletionInput, signal?: AbortSignal): Promise<NimResult<ChatCompletionChunk[]>> {
@@ -108,8 +158,10 @@ export class NimClient extends EventEmitter<NimEvents> {
         const delta = chunk.choices.find(choice => choice.index === 0)?.delta;
         const content = delta?.content ?? delta?.refusal;
         if (content) this.emit('onTokenStream', content);
+        const reasoning = (delta as { reasoning_content?: string })?.reasoning_content;
+        if (reasoning) this.emit('onReasoningStream', reasoning);
       }
       return chunks;
-    }, signal, () => !received);
+    }, signal, () => !received, input.model ?? DEFAULT_MODEL);
   }
 }

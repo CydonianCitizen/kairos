@@ -1,5 +1,6 @@
 import { Client, StreamableHTTPClientTransport, type Tool } from '@modelcontextprotocol/client';
 import { StdioClientTransport, getDefaultEnvironment } from '@modelcontextprotocol/client/stdio';
+import { VERSION } from '../config/project.js';
 export interface McpConfig { command?: string; args?: string[]; url?: string; env?: Record<string,string>; headers?: Record<string,string> }
 function environment(refs: Record<string,string> = {}): Record<string,string> {
  const result:Record<string,string>={};
@@ -15,7 +16,7 @@ export class McpConnection {
   if(!/^[\w-]{1,40}$/.test(name))throw new Error('Invalid MCP server name');
   if(!config || typeof config!=='object' || Object.keys(config).some(k=>!['command','args','url','env','headers'].includes(k)) || !!config.command===!!config.url)throw new Error(`MCP ${name}: specify exactly one command or URL`);
   if(config.args && (!Array.isArray(config.args)||config.args.some(a=>typeof a!=='string')))throw new Error('Invalid MCP arguments');
-  const client=new Client({name:'nim-codex',version:'0.1.0'},{capabilities:{}});
+  const client=new Client({name:'kairos',version:VERSION},{capabilities:{}});
   let transport;
   if(config.url){
    const url=new URL(config.url);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw new Error('MCP URL must be HTTP(S), without embedded credentials');

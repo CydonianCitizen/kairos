@@ -1,5 +1,6 @@
 {
-  "name": "nim-codex",
+  "name": "kairos",
+  "description": "KAIROS — Right-Time Coding Agent powered by NVIDIA NIM",
   "version": "0.0.1-alpha",
   "private": true,
   "type": "module",
@@ -7,14 +8,17 @@
   "types": "./dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
   "bin": {
+    "kairos": "dist/cli.js",
     "nim-codex": "dist/cli.js"
   },
+  "files": ["dist", "docs", ".env.example"],
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
     "start": "node dist/cli.js",
     "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -32,6 +36,7 @@
     "openai": "^7.45.1",
     "react": "^18.3.1",
     "strip-ansi": "^7.2.0",
+    "string-width": "^7.2.0",
     "tree-sitter-wasms": "^0.1.13",
     "web-tree-sitter": "^0.25.10"
   },

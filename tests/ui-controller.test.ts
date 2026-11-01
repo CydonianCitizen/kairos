@@ -1,11 +1,12 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, expect, it } from 'vitest';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentLoop } from '../src/core/agent-loop.js';
 import { UiController } from '../src/ui/controller.js';
 import { parseCliArgs } from '../src/cli-options.js';
+import { ExtensionHost } from '../src/extensions/host.js';
 const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 async function setup() {
@@ -24,17 +25,33 @@ it('executes slash commands locally, preserves scrollback and completes file/sym
   const { controller, agent, client } = await setup();
   expect(controller.suggestions('Explain @su')).toContain('sum');
   expect(controller.suggestions('Read @ma')).toContain('math.ts');
+  expect(controller.suggestions('Read @file:ma')).toContain('file:math.ts');
+  expect(controller.suggestions('Read @symbol:su')).toContain('symbol:sum');
+  expect(controller.commandSuggestions('/')).toHaveLength(29);
+  expect(controller.commandSuggestions('/mod').map(item => item.name)).toEqual(['/model', '/mode']);
+  expect(controller.commandSuggestions('/think').map(item => item.name)).toEqual(['/thinking']);
+  expect(controller.commandSuggestions('/scop').map(item => item.name)).toEqual(['/scope']);
+  expect(controller.commandSuggestions('/mode plan')).toEqual([]);
+  await controller.submit('/thinking on');
+  expect(controller.getSnapshot().showThinking).toBe(true);
+  await controller.submit('/thinking off');
+  expect(controller.getSnapshot().showThinking).toBe(false);
+  await controller.submit('/thinking');
+  expect(controller.getSnapshot().showThinking).toBe(true);
+  await controller.submit('/scope read-only');
+  expect(controller.getSnapshot().scope).toBe('read-only');
+  expect(agent.scope).toBe('read-only');
+  await controller.submit('/scope full');
+  expect(controller.getSnapshot().scope).toBe('full');
+  expect(agent.scope).toBe('full');
   await controller.submit('/help');
+  const historyLength = controller.getSnapshot().history.length;
   await controller.submit('/model');
-  const catalog = controller.getSnapshot().history.at(-1)?.text;
-  expect(catalog).toContain('Active: mistralai/mistral-large-4-1t-a52b');
-  expect(catalog).toContain('z-ai/glm-5.3-flash');
-  expect(catalog).toContain('minimaxai/minimax-m3.1-flash');
-  expect(catalog).toContain('deepseek-ai/deepseek-v4.1-flash');
-  expect(catalog).toContain('nvidia/nemotron-3.5-bolt-e4b');
-  expect(catalog).not.toContain('deepseek-r1');
+  expect(controller.getSnapshot().modelPickerOpen).toBe(true);
+  expect(controller.getSnapshot().history).toHaveLength(historyLength);
   await controller.submit('/model meta/llama-3.3-70b-instruct');
   expect(agent.model).toBe('meta/llama-3.3-70b-instruct');
+  expect(controller.getSnapshot().modelPickerOpen).toBe(false);
   await controller.submit('/graph');
   await controller.submit('/compact');
   expect(client.count).toBe(0);
@@ -47,12 +64,79 @@ it('executes slash commands locally, preserves scrollback and completes file/sym
   controller.dispose();
   expect(agent.listenerCount('onTokenStream')).toBe(0);
 });
+it('treats multiline slash-prefixed text as a prompt and retains search history after clear', async () => {
+ const { controller, client } = await setup(); let exited = false;
+ controller.on('exit', () => { exited = true; });
+ try {
+  await controller.submit('/exit\nExplain this command');
+  expect(exited).toBe(false); expect(client.count).toBe(1);
+  await controller.submit('/clear');
+  expect(await controller.promptHistory()).toContain('/exit\nExplain this command');
+ } finally { await controller.close(); }
+});
+it('opens effort selection, validates levels and resets unsupported choices on model changes', async () => {
+  const { controller, agent, client } = await setup();
+  await controller.submit('/effort');
+  expect(controller.getSnapshot().effortPickerOpen).toBe(true);
+  controller.cancel(); expect(controller.getSnapshot().effortPickerOpen).toBe(false);
+  await controller.submit('/effort high'); expect(agent.effort).toBe('high');
+  expect(controller.getSnapshot().effort).toBe('high');
+  await controller.submit('/effort low');
+  expect(agent.effort).toBe('high');
+  expect(controller.getSnapshot().history.at(-1)?.kind).toBe('error');
+  await controller.submit('/model minimaxai/minimax-m3.1-flash');
+  expect(agent.effort).toBe('high');
+  await controller.submit('/effort max'); expect(agent.effort).toBe('max');
+  await controller.submit('/model custom/new-model'); expect(agent.effort).toBe('auto');
+  expect(client.count).toBe(0); await controller.close();
+});
+it('dismisses the model picker with cancel or Ctrl+C without changing the model or exiting', async () => {
+  const { controller, agent, client } = await setup();
+  let exits = 0; controller.on('exit', () => exits++);
+  const original = agent.model;
+  await controller.submit('/model'); controller.cancel();
+  expect(controller.getSnapshot().modelPickerOpen).toBe(false);
+  await controller.submit('/model'); controller.cancelOrExit();
+  expect(controller.getSnapshot().modelPickerOpen).toBe(false);
+  expect(agent.model).toBe(original); expect(exits).toBe(0); expect(client.count).toBe(0);
+  await controller.close();
+});
+it('refuses to open the model picker while work is active', async () => {
+  const { controller, agent } = await setup();
+  const original = agent.model;
+  let release = () => {};
+  const active = controller.interaction.action(() => new Promise<void>(resolve => { release = resolve; }));
+  try {
+    await controller.submit('/model');
+    expect(controller.getSnapshot().modelPickerOpen).not.toBe(true);
+    expect(controller.getSnapshot().history.at(-1)?.text).toContain('Command requires an idle agent');
+    expect(agent.model).toBe(original);
+    await controller.submit('/effort');
+    expect(controller.getSnapshot().effortPickerOpen).not.toBe(true);
+    await controller.submit('/effort high'); expect(agent.effort).toBe('auto');
+  } finally { release(); await active; await controller.close(); }
+});
 it('rejects unknown slash commands without sending them to NIM', async () => {
   const { controller, client } = await setup();
   await controller.submit('/missing');
   expect(client.count).toBe(0);
   expect(controller.getSnapshot().history.at(-1)?.text).toContain('Unknown command');
   controller.dispose();
+});
+it('includes loaded plugin commands in the slash menu', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'kairos-plugin-menu-')); roots.push(root);
+  await mkdir(join(root, '.nim'));
+  await writeFile(join(root, '.nim', 'command.mjs'), "export default api => api.registerCommand('hello', async () => 'Hello from plugin');");
+  await writeFile(join(root, '.nim', 'config.json'), JSON.stringify({ plugins: ['.nim/command.mjs'] }));
+  const extensions = await ExtensionHost.load(root, true);
+  const client = new class extends EventEmitter { async stream() { throw new Error('No NIM calls expected'); } }();
+  const controller = new UiController(new AgentLoop({ workspace: root, extensions, client, session: false }));
+  try {
+    await controller.start();
+    expect(controller.commandSuggestions('/hell')).toEqual([{ name: '/hello', description: 'Workspace plugin command' }]);
+    await controller.submit('/hello');
+    expect(controller.getSnapshot().history.at(-1)?.text).toBe('Hello from plugin');
+  } finally { await controller.close(); }
 });
 it('parses CLI flags strictly and supports help without credentials', () => {
   expect(parseCliArgs(['--help']).help).toBe(true);

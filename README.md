@@ -1,10 +1,20 @@
-# nim-codex
+# KAIROS (κ)
+
+**Right-Time Coding Agent · NVIDIA NIM**
+
+TUI inline con logo κ oro/bronzo, palette condivisa e banner fisso in alto con versione, modello e statistiche reali del Code Graph. Modello in verde NVIDIA, effort oro, grafo e cooldown restano aggiornati nella barra di stato unica sotto l'input. Nei terminali sotto le 80 colonne il banner usa un layout compatto; sotto le 16 righe si riduce al titolo.
+
+**Kairon**, la mascotte ufficiale, passeggia sopra l'input con ciuffo oro, corpo bronzo e occhi ciano. Cammina più velocemente mentre l'agente lavora, si ferma durante il cooldown NIM e mostra occhi rossi durante i retry 429 o dopo un errore. Il fumetto riporta attività e countdown reali, senza richieste API aggiuntive. Si adatta alla larghezza del terminale e lascia spazio all'input quando l'altezza non basta o sono aperti i selettori modello/effort.
 
 Fasi 1–4: client NVIDIA NIM, tool filesystem batch, motore Code Graph locale, ciclo agente e TUI inline con CLI.
 
 Fase 5: [audit e semplificazioni](docs/PHASE-5-AUDIT.md), con [confronto Pi/OpenCode e proposte successive](docs/PI-OPENCODE-COMPARISON.md).
 
 Sono implementati anche **sessioni persistenti, compattazione semantica, plan mode, MCP, skill/plugin, input accodabili e JSON/RPC/SDK**. La [guida alle nuove funzionalità](docs/WORKFLOWS.md) contiene comandi, configurazione ed esempi completi.
+
+Sono disponibili anche **approvazioni con anteprima, undo persistente degli edit, riferimenti espliciti a file/simboli e coda visibile dei messaggi**. KAIROS ricorda l'ultimo modello scelto per le nuove sessioni, anche cambiando repository. Dettagli e comandi nella [guida ai flussi host](docs/HOST-WORKFLOWS.md).
+
+La [ricerca su Claude Code](docs/CLAUDE-CODE-RESEARCH.md) raccoglie i meccanismi verificati nel codice pubblico, i comportamenti documentati e gli spunti applicabili a KAIROS.
 
 ## Installazione e verifica
 
@@ -17,7 +27,42 @@ npm test
 npm run build
 ```
 
-Per usare NIM, copiare `.env.example` in `.env` e valorizzare `NVIDIA_API_KEY`, oppure impostare la variabile nell'ambiente. `.env` è escluso da Git. I test usano risposte HTTP simulate e non richiedono credenziali.
+Per usare NIM da qualsiasi repository, creare una sola volta il file personale `~/.kairos/.env` (su Windows `%USERPROFILE%\.kairos\.env`) con:
+
+```dotenv
+NVIDIA_API_KEY=la_tua_chiave
+```
+
+La CLI cerca la chiave in questo ordine: **variabile d'ambiente → `.env` del workspace selezionato → `~/.kairos/.env`**. Il file personale evita di copiare la chiave in ogni progetto; per una chiave specifica del progetto, copiare `.env.example` in `.env` e valorizzarla. `.env` è escluso da Git. I test usano risposte HTTP simulate e non richiedono credenziali.
+
+Modello, effort e timeout iniziali si configurano in `~/.kairos/config.json`; le istruzioni personali si scrivono in `~/.kairos/system-prompt.md`, senza ricompilare. La [guida alla configurazione](docs/CONFIGURATION.md) descrive precedenze, impostazioni del progetto e il comando esplicito `kairos --check-models` per verificare gli endpoint reali. Sono disponibili anche gli [esiti della verifica hosted](docs/NIM-VERIFICATION.md).
+
+### Comando `kairos`
+
+Dalla radice del repository, dopo la build, installare il comando per lo sviluppo:
+
+```sh
+npm link
+```
+
+Poi, da qualsiasi directory di progetto:
+
+```sh
+kairos
+kairos --mode plan
+kairos --version
+```
+
+Su Windows, usare `npm.cmd link` se PowerShell intercetta gli argomenti di npm. La directory dei comandi globali npm deve essere nel `PATH` del terminale; `npm prefix -g` mostra il prefisso (su macOS/Linux i comandi sono nella sottodirectory `bin`).
+
+Per distribuire una copia installabile invece di un collegamento al checkout:
+
+```sh
+npm pack
+npm install --global ./kairos-0.0.1-alpha.tgz
+```
+
+`npm pack` esegue automaticamente la build e include i moduli compilati, la documentazione e il modello `.env.example`. Dopo l'installazione il comando è sempre `kairos`; il pacchetto richiede Node.js. La chiave NVIDIA viene letta dall'ambiente, dal `.env` del workspace o dal file personale `~/.kairos/.env`, in quest'ordine. Questa procedura installa il pacchetto locale, senza pubblicarlo sul registro npm.
 
 ## Client
 
@@ -40,13 +85,13 @@ if (result.ok) console.log(result.value.choices);
 else console.error(result.error);
 ```
 
-`complete()` restituisce `NimResult<ChatCompletion>`. `stream()` restituisce tutti i chunk, inclusi i delta delle chiamate tool, ed emette `onTokenStream` per testo e rifiuti del modello. Entrambi accettano un `AbortSignal` come secondo argomento. Gli errori HTTP e l'esaurimento dei retry producono `{ ok: false, error, status }`; una chiave mancante produce un errore di configurazione nel costruttore. La libreria non carica automaticamente `.env`: lo fa esplicitamente il chiamante, come nell'esempio. La CLI carica soltanto il `.env` del workspace selezionato.
+`complete()` restituisce `NimResult<ChatCompletion>`. `stream()` restituisce tutti i chunk, inclusi i delta delle chiamate tool, ed emette `onTokenStream` per testo e rifiuti del modello. Entrambi accettano un `AbortSignal` come secondo argomento. Gli errori HTTP e l'esaurimento dei retry producono `{ ok: false, error, status }`; una chiave mancante produce un errore di configurazione nel costruttore. La libreria non carica automaticamente `.env`: lo fa esplicitamente il chiamante, come nell'esempio. La CLI carica il `.env` del workspace selezionato e usa `~/.kairos/.env` per le variabili ancora mancanti, conservando quelle già presenti nell'ambiente.
 
-Tutte le istanze condividono una coda FIFO nello stesso processo, con una sola richiesta attiva e almeno 1600 ms tra gli avvii. Lo slot resta occupato durante lo streaming e il backoff. I 429 consentono tre retry dopo 5, 10 e 20 secondi, rispettando anche `Retry-After` se maggiore. Uno stream già iniziato non viene ripetuto. Processi distinti o altre applicazioni che usano la stessa chiave non condividono questo limite.
+Tutte le istanze condividono una coda FIFO nello stesso processo, con una sola richiesta attiva e almeno 1600 ms tra gli avvii. Processi Kairos sullo stesso computer coordinano la stessa chiave tramite file locali in `~/.kairos/rate-limits`, senza salvare la chiave in quei file. Lo slot resta occupato durante lo streaming e il backoff. I 429 consentono tre retry dopo 5, 10 e 20 secondi, rispettando anche `Retry-After` se maggiore. Uno stream già iniziato non viene ripetuto. Altre applicazioni, computer o directory di coordinamento diverse non condividono questo limite; l'ordine tra processi dipende dalla contesa del lock, mentre la FIFO resta garantita nel singolo processo.
 
 I retry automatici dell'SDK sono disabilitati con `maxRetries: 0`, come previsto dalla [documentazione OpenAI SDK](https://github.com/openai/openai-node/blob/main/docs/configuration.md), per evitare richieste fuori dal limiter.
 
-Il [catalogo dei modelli](docs/MODELS.md), aggiornato dalle pagine ufficiali NVIDIA il **31 ottobre 2026**, usa **Mistral Large 4** come predefinito e include DeepSeek V4.1 Flash, MiniMax M3.1 Flash, GLM 5.3 Flash e Nemotron 3.5 Bolt. `/model` mostra gli ID disponibili; `/model provider/model` e `--model` accettano anche ID esterni alla selezione. Le sessioni riprese conservano il modello precedente, salvo selezione esplicita. La disponibilità è verificata sul catalogo pubblico, senza chiamate reali con la tua API key. `parallel_tool_calls` viene inviato solo con tool e supporto documentato (Nemotron Bolt), oppure tramite override nel costruttore del client.
+Il [catalogo dei modelli](docs/MODELS.md) si aggiorna all'avvio della TUI con un controllo NVIDIA ogni **24 ore**, usando cache locale e fallback offline. I profili inclusi, verificati sulle pagine NVIDIA il **31 ottobre 2026**, usano **Mistral Large 4** come predefinito e comprendono DeepSeek V4.1 Flash, MiniMax M3.1 Flash, GLM 5.3 Flash e Nemotron 3.5 Bolt. Gli altri modelli scaricati sono candidati, senza supporto ai tool certificato dall'endpoint. `/model` apre un selettore navigabile con frecce e Invio, con il modello attivo evidenziato ed Esc per annullare; `/model provider/model` e `--model` accettano anche ID esterni alla selezione. Le sessioni riprese conservano il modello precedente, salvo selezione esplicita. `parallel_tool_calls` viene inviato solo con tool e supporto documentato (Nemotron Bolt), oppure tramite override nel costruttore del client.
 
 ## Tool batch
 
@@ -68,7 +113,7 @@ const command = await tools.run_bash('git status --short');
 - `AgentLoop` emette `onToolStart` e `onToolEnd`; i tool diretti restituiscono soltanto i risultati.
 - `run_bash` parte nel workspace, usa un timeout predefinito di 30 secondi (configurabile da 1 ms a 300 s), termina l'albero dei processi al timeout e limita ciascuno di stdout/stderr a 15.000 caratteri. Il risultato include exit code, timeout e troncamento. Esegue comandi arbitrari: non è una sandbox.
 
-Il dispatcher valida gli argomenti e il ciclo agente esegue i tool richiesti dal modello con i permessi del processo corrente. Non è presente un'interfaccia di approvazione interattiva. Le protezioni dei percorsi presuppongono un workspace locale fidato, senza modifiche concorrenti ostili dei symlink.
+Il dispatcher valida gli argomenti e la CLI chiede approvazione prima di edit, shell e chiamate esterne. Le regole `allow/ask/deny` e `--permissions` controllano gli effetti; in modalità non interattiva `ask` si ferma con un errore esplicito. Le protezioni dei percorsi presuppongono un workspace locale fidato, senza modifiche concorrenti ostili dei symlink. I tool eseguono comunque con i privilegi del processo: non sono una sandbox OS.
 
 ## Code Graph locale (Fase 2)
 
@@ -129,7 +174,7 @@ const result = await agent.run('Spiega il funzionamento di NimClient', {
 console.log('\n', result.status, result.error ?? '');
 ```
 
-Il prompt in `src/core/system-prompt.ts` guida l'uso del grafo, dei tool batch e delle verifiche. Contenuti del repository, risultati dei tool e frammenti di cronologia sono trattati come dati. `--trust-workspace` autorizza separatamente istruzioni da `AGENTS.md`, skill e configurazione locale delle estensioni.
+Il prompt in `src/core/system-prompt.ts` guida l'uso del grafo, dei tool batch e delle verifiche. Viene inviato a NIM come messaggio con ruolo `system` a ogni iterazione. Per aggiungere istruzioni senza ricompilare, usare `~/.kairos/system-prompt.md`, `systemPromptFile` nella configurazione oppure `--system-prompt FILE`. Per personalizzare un singolo progetto, scrivere le istruzioni in `AGENTS.md` e avviare `kairos --trust-workspace`: sono istruzioni aggiuntive subordinate al prompt di sistema. Il prompt base resta modificabile nel sorgente con una successiva build. Contenuti del repository, risultati dei tool e frammenti di cronologia sono trattati come dati. `--trust-workspace` autorizza anche skill, configurazione delle estensioni e preferenze `.kairos/config.json` del progetto.
 
 `AgentLoop.run()` indicizza il workspace prima del turno, cerca i simboli rilevanti per il prompt e aggiunge firme, percorsi e righe alle richieste NIM. La mappa viene rigenerata per ogni richiesta senza accumularne copie nella cronologia. Dopo un batch di modifiche riuscito, anche solo parzialmente, o dopo un comando shell, il grafo viene ricostruito prima del tool successivo. Discovery e compattazione locale non richiedono API; la compattazione semantica usa il client NIM e lo stesso limiter.
 
@@ -155,34 +200,70 @@ npm run build
 npm start
 ```
 
-Impostare `NVIDIA_API_KEY` nell'ambiente oppure nel file `.env` del workspace. Per un progetto diverso:
+Configurare `NVIDIA_API_KEY` nel file personale `~/.kairos/.env`, nell'ambiente oppure nel `.env` del workspace. Per un progetto diverso:
 
 ```sh
 node dist/cli.js --cwd /percorso/progetto --model mistralai/mistral-large-4-1t-a52b
 ```
 
-`node dist/cli.js --help` e `node dist/cli.js --version` non richiedono credenziali. Il campo `bin` espone `nim-codex` dopo un eventuale `npm link` locale. Senza TTY usare `node dist/cli.js --prompt "Spiega NimClient"`: esegue un turno con output testuale, senza Ink. `--max-iterations` e `--max-context-chars` configurano i limiti del ciclo.
+`node dist/cli.js --help` e `node dist/cli.js --version` non richiedono credenziali. Il campo `bin` espone `kairos` dopo un eventuale `npm link` locale, mantenendo `nim-codex` come alias. Le sessioni restano in `~/.nim-codex/sessions` e la configurazione del workspace in `.nim/`, per continuare a usare i dati esistenti. Senza TTY usare `node dist/cli.js --prompt "Spiega NimClient"`: esegue un turno con output testuale, senza Ink. `--max-iterations` e `--max-context-chars` configurano i limiti del ciclo. Il flag `--scope <none|read-only|workspace|full>` vincola le autorizzazioni: `none` blocca ogni operazione filesystem/shell, `read-only` consente la sola lettura nel workspace, `workspace` (predefinito) consente lettura e scrittura confinate al progetto, `full` autorizza l'accesso completo al dispositivo.
 
-La TUI usa React 18, Ink 5 e `ink-text-input`. I turni completati, i log dei tool e i diff vengono stampati con `<Static>`. Non viene attivato l'alternate screen buffer. Solo il dock inferiore viene aggiornato: anteprima dello stream, ultimo tool, stato del grafo, modello, countdown NIM e input con bordo arrotondato. Il dock si adatta alle dimensioni del terminale.
+La TUI usa React 18, Ink 5 e `ink-text-input`. I turni completati, i log dei tool e i diff vengono stampati con `<Static>`, conservando lo scrollback nativo. L'area visibile mantiene il banner in alto e una finestra sugli ultimi messaggi sopra il prompt, ancorato in basso con separatori orizzontali e prefisso `❯`. L'ultima riga raccoglie modello in verde NVIDIA, effort oro, stato NIM/attività, modalità, `AST file/simboli !avvisi`, coda `Q` e ID breve della sessione. Nei terminali stretti i dettagli finali vengono abbreviati o nascosti per preservare modello ed effort. Kairon resta sopra l'input quando c'è spazio. Il dock si adatta ad altezza, larghezza e menu aperti senza attivare l'alternate screen buffer.
 
 | Comando | Comportamento |
 | --- | --- |
-| `/model` | Elenca il modello attivo e il catalogo |
+| `/model` | Apre il selettore: frecce ↑/↓, Invio per confermare, Esc per annullare |
+| `/effort [livello]` | Apre il selettore effort o imposta direttamente un livello supportato |
 | `/model provider/model` | Cambia modello conservando la conversazione |
 | `/graph [directory]` | Ricostruisce il grafo e stampa la mappa locale |
+| `/context` | Mostra riferimenti espliciti, righe e budget usato |
+| `/undo` | Anteprima e ripristino dell'ultimo batch edit registrato |
+| `/rewind [ID ambito]` | Selettore dei prompt e ripristino di conversazione, file o entrambi |
+| `/tasks [start/logs/stop]` | Gestisce comandi shell supervisionati in background |
+| `/memory [add/update/remove/clear]` | Gestisce note durevoli del progetto |
 | `/clear` | Azzera il contesto della conversazione, conservando lo scrollback |
 | `/compact` | Riassume la cronologia tramite NIM con fallback locale |
 | `/compact local` | Compatta senza chiamate al modello |
 | `/plan`, `/build` | Passa tra pianificazione e modifica |
-| `/sessions`, `/resume ID`, `/new` | Gestisce sessioni persistenti |
+| `/resume [ID]` | Apre il selettore delle sessioni oppure riprende direttamente un ID |
+| `/rename NOME` | Rinomina la sessione corrente e salva il nome |
+| `/branch [--model ID] [NOME]` | Copia la conversazione e passa alla nuova sessione |
+| `/btw [--model ID] DOMANDA` | Risposta separata dal contesto corrente, anche durante il lavoro; senza domanda riapre l'ultima |
+| `/sessions`, `/new` | Elenca le sessioni o ne crea una nuova |
 | `/skills`, `/skill NAME`, `/extensions`, `/mcp` | Ispeziona e usa le estensioni |
 | `/steer TEXT`, `/queue TEXT` | Guida il turno attivo o accoda un follow-up |
+| `/thinking [on\|off]` | Mostra o nasconde lo streaming CoT (Chain of Thought / reasoning) |
+| `/scope [livello]` | Imposta l'ambito di accesso ai file (`none`, `read-only`, `workspace`, `full`) |
+| `/queue`, `/queue remove ID`, `/queue clear` | Elenca o rimuove messaggi in attesa senza fermare il turno corrente |
+| `/queue edit ID TESTO` | Modifica un messaggio ancora in coda mantenendone ID e posizione |
 | `/help` | Mostra comandi e scorciatoie |
 | `/exit` | Esce quando nessun turno è attivo |
 
-La maggior parte dei comandi slash è locale; `/compact` usa NIM e i comandi plugin possono eseguire operazioni esterne. Durante un turno l'input resta disponibile per follow-up e `/steer`. `Esc` cancella il lavoro attivo e svuota la coda; `Ctrl+C` fa lo stesso oppure esce quando l'agente è inattivo.
+Digitando `/` si apre un menu scorrevole con tutti i comandi e una breve descrizione, inclusi quelli dei plugin caricati. La lista si filtra continuando a scrivere; ↑/↓ spostano la selezione e Invio esegue il comando scelto. Per i comandi con argomenti obbligatori, come `/mode` e `/steer`, Invio prepara l'input da completare. `Tab` completa senza eseguire. `Esc` o `Ctrl+C` chiudono il menu e riportano al prompt.
+
+Per modificare un messaggio in coda senza riscriverlo: **↑ dalla prima riga dell'input → ↑/↓ per scegliere → Invio/Tab per aprire**. Il testo esistente si modifica direttamente nell'input; **Invio salva**, **Esc annulla e ripristina la bozza**. La coda resta sospesa durante la modifica, mentre il turno già attivo continua.
+
+`/resume` apre un **menu ricercabile delle sessioni del progetto**, ordinate dalla più recente. Ogni voce mostra il nome scelto o un titolo ricavato localmente dal primo prompt, data, modello, modalità e ID breve; la sessione corrente è indicata e la selezione iniziale privilegia un'altra sessione. Scrivere filtra nome, titolo originale, ID completo, modello, modalità e data; ↑/↓ spostano la selezione e Invio riprende la sessione. Esc/Ctrl+C tornano al prompt. Se una sessione è già in uso o non può essere aperta, il menu mostra l'errore e mantiene la sessione corrente. `/resume ID` continua a funzionare; `--no-session` disabilita la ripresa. I titoli automatici restano disponibili dopo `/clear` e compattazione perché vengono letti dai checkpoint originali, senza usare NIM.
+
+`/rename Piano del grafo` salva il nome della sessione corrente, che compare nel menu `/resume` e in `/sessions`. Il nome può contenere spazi e Unicode, deve essere di 1–120 caratteri su una sola riga e non può contenere caratteri di controllo. Rinomina e ricerca non chiamano NIM. Il nome sopravvive a riavvio, ripresa, `/clear` e compattazione; `/new` crea una sessione senza ereditare il nome. La rinomina richiede una sessione persistente e l'agente inattivo. I journal precedenti senza nome rimangono leggibili.
+
+`/branch Strategia alternativa` crea un nuovo ID e una copia persistente di messaggi, riassunto, modalità e impostazioni correnti, poi passa alla copia. L'originale resta disponibile con `/resume`; il messaggio di conferma ne mostra l'ID. `/branch --model minimaxai/minimax-m3.1-flash Strategia alternativa` sceglie un modello per la copia senza cambiare quello dell'originale. L'effort viene mantenuto se supportato, altrimenti torna su `auto`. La ramificazione richiede persistenza e agente inattivo, non chiama NIM e condivide gli stessi file del progetto: non crea un branch Git o una worktree.
+
+`/btw --model z-ai/glm-5.3-flash Perché abbiamo scelto questo parser?` avvia una domanda laterale in un pannello separato, usando una copia del contesto disponibile e un client indipendente. Non ha tool, non modifica file o sessione principale e non salva la risposta nel journal. Il lavoro principale continua; tutte le chiamate NIM condividono la stessa coda a 37,5 RPM. Omettere `--model` usa il modello corrente, senza modificarne la selezione. L'opzione deve precedere domanda o nome; è accettata anche la forma `--model=provider/modello`.
+
+Nel pannello `/btw`, ↑/↓ scorrono la risposta, Esc torna al prompt lasciando proseguire il lavoro e Ctrl+C annulla soltanto la domanda laterale. A risposta conclusa, Invio/Spazio chiudono e `x` cancella la cronologia laterale. `/btw` senza testo riapre l'ultimo pannello senza chiamare NIM. Sono conservati in memoria al massimo 20 scambi laterali, entro il budget di contesto; `/clear`, cambio di sessione o chiusura li azzerano. È attiva al massimo una domanda laterale alla volta.
+
+L'input è **multilinea**: Invio invia il prompt completo; `Ctrl+J`, `\` seguito da Invio e le sequenze Shift+Invio riconosciute aggiungono una nuova riga. Se il terminale non distingue Shift+Invio da Invio, usare una delle prime due alternative. Frecce, Home/End, Ctrl+A/Ctrl+E, Backspace e Canc modificano il testo senza spezzare emoji o caratteri combinati. I blocchi incollati mantengono righe e tabulazioni; un blocco multilinea che inizia con `/` viene trattato come prompt. L'editor scorre intorno al cursore, fino a sei righe visibili, lasciando il footer in basso.
+
+`Ctrl+R` apre la **ricerca nei prompt del progetto**, compresi quelli salvati in sessioni precedenti. Scrivere filtra senza distinzione tra maiuscole e minuscole; ↑/↓ o un altro Ctrl+R scorrono i risultati. Invio/Tab caricano il risultato nella bozza: un secondo Invio lo invia. Esc/Ctrl+C chiudono la ricerca ripristinando la bozza senza interrompere il lavoro. La ricerca riusa i journal esistenti e non crea nuovi file; con `--no-session` usa solo i prompt in memoria. Per mantenere la ricerca limitata, restituisce fino a 200 prompt distinti, leggendo la coda di massimo 100 journal recenti (1 MiB per file, 16 MiB totali); prompt molto vecchi possono quindi non comparire. Nessuna richiesta NIM per scrittura o ricerca.
+
+Nel selettore `/model` puoi scrivere per filtrare i nomi senza distinzione tra maiuscole e minuscole, usare Backspace per correggere e poi confermare con Invio. `/effort` mostra solo i livelli configurati per il modello attivo: inizialmente Mistral Large 4 (`auto`, `none`, `high`) e MiniMax M3.1 Flash (`auto`, `low`, `medium`, `high`, `xhigh`, `max`). Gli altri modelli usano `auto`, senza aggiungere parametri non verificati. La scelta compare nella barra di stato e viene salvata nella sessione; cambiando modello ritorna ad `auto` se il nuovo modello non supporta il livello scelto. Vedi [effort e parametri](docs/MODELS.md#reasoning-effort).
+
+La maggior parte dei comandi slash è locale; `/compact` usa NIM e i comandi plugin possono eseguire operazioni esterne. Durante un turno l'input resta disponibile per follow-up e `/steer`. Quando non è aperto un menu, `Esc` cancella il lavoro attivo e svuota la coda; `Ctrl+C` fa lo stesso oppure esce quando l'agente è inattivo.
 
 Digitare `@` seguito dall'inizio di un file o simbolo per ottenere suggerimenti dall'indice. `↑` e `↓` selezionano un suggerimento, `Tab` completa il riferimento finale nell'input. Il completamento è disponibile anche per i comandi slash. Quando non ci sono completamenti attivi, `Tab` espande o richiude i dettagli dell'ultimo tool; durante il lavoro può farlo direttamente. I dettagli nel dock sono un'anteprima limitata, mentre log e diff applicati restano nella cronologia.
+
+`@src/file.ts`, `@NomeSimbolo`, `@file:percorso` e `@symbol:NomeSimbolo` allegano davvero sorgenti e righe al turno, entro un budget di massimo 12.000 caratteri. `/context` ne mostra il consumo. Fonti mancanti, ambigue o non sicure vengono segnalate prima dell'inferenza; dettagli e limiti nella [guida ai flussi host](docs/HOST-WORKFLOWS.md).
 
 I diff unificati sono calcolati dal contenuto effettivo prima e dopo ogni scrittura riuscita: aggiunte verdi, eliminazioni rosse e intestazioni degli hunk ciano. Le modifiche fallite non producono diff. I comandi shell producono un log di esito, ma non un diff automatico delle modifiche esterne. Le sequenze di controllo terminale provenienti da sorgenti e output del modello vengono eliminate prima della visualizzazione.
 

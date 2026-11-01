@@ -6,6 +6,7 @@ import type { ChatCompletionTool } from 'openai/resources/chat/completions';
 import type { AgentMode } from '../core/session-store.js';
 import type { ToolResult } from '../tools/registry.js';
 import { McpConnection, type McpConfig } from './mcp.js';
+import { PermissionError } from '../core/permissions.js';
 export interface ExtensionTool { name:string; description:string; parameters:Record<string,unknown>; execute:(args:Record<string,unknown>,context:{workspace:string;signal?:AbortSignal})=>Promise<unknown> }
 export interface PluginApi {
  registerTool(tool:ExtensionTool):void;
@@ -14,7 +15,7 @@ export interface PluginApi {
 }
 interface Config {plugins?:string[];mcpServers?:Record<string,McpConfig>}
 interface Skill {name:string;description:string;content:string}
-const reserved=new Set(['help','model','mode','plan','build','graph','clear','compact','exit','sessions','resume','new','skills','skill','extensions','mcp','steer','queue']);
+const reserved=new Set(['help','model','effort','mode','plan','build','graph','clear','compact','exit','sessions','resume','rename','branch','btw','new','skills','skill','extensions','mcp','steer','queue']);
 const ajv=new Ajv({strict:false,allErrors:false,validateFormats:false});
 const schemas:Record<string,Record<string,unknown>>={
  load_skills_batch:{type:'object',properties:{names:{type:'array',minItems:1,maxItems:20,items:{type:'string'}}},required:['names'],additionalProperties:false},
@@ -86,7 +87,7 @@ export class ExtensionHost {
   const names=[...(this.skills.size?['load_skills_batch']:[]),...(mode==='build'&&this.tools.size?['inspect_extension_tools','extension_tools_batch']:[]),...(mode==='build'&&this.servers.size?['mcp_resources_batch']:[])];
   return names.map(name=>({type:'function',function:{name,description:descriptions[name]!,parameters:schemas[name]!}}));
  }
- async execute(name:string,raw:unknown,signal?:AbortSignal,mode:AgentMode='build'):Promise<ToolResult>{
+ async execute(name:string,raw:unknown,signal?:AbortSignal,mode:AgentMode='build',beforeExecute?:()=>Promise<void>):Promise<ToolResult>{
   let mutated=false;
   try{
    signal?.throwIfAborted();if(mode==='plan'&&name!=='load_skills_batch')throw new Error('External operations are disabled in plan mode');
@@ -95,10 +96,11 @@ export class ExtensionHost {
    if(name==='load_skills_batch')return {ok:true,mutated:false,result:args.names.map(n=>{const skill=this.skills.get(n);if(!skill)throw new Error(`Unknown skill: ${n}`);return skill;})};
    if(name==='inspect_extension_tools')return {ok:true,mutated:false,result:args.names.map(n=>{const tool=this.tools.get(n);if(!tool)throw new Error(`Unknown extension tool: ${n}`);return {name:n,description:tool.description,parameters:tool.parameters};})};
    const operations = name==='extension_tools_batch' ? args.calls.map(call=>{const tool=this.tools.get(call.name);if(!tool||!tool.validate(call.arguments))throw new Error(`Invalid arguments or unknown tool: ${call.name}`);return ()=>tool.execute(call.arguments,{workspace:this.workspace,signal});}) : args.requests.map(req=>{const server=this.servers.get(req.server);if(!server)throw new Error(`Unknown MCP server: ${req.server}`);return ()=>server.resource(req.uri,signal);});
+   await beforeExecute?.();signal?.throwIfAborted();
    const results:unknown[]=[];let ok=true;
    for(const operation of operations){signal?.throwIfAborted();mutated=true;try{results.push({ok:true,result:await operation()});}catch(error){ok=false;results.push({ok:false,error:error instanceof Error?error.message:String(error)});}}
    return {ok,mutated,result:results};
-  }catch(error){return {ok:false,mutated,error:error instanceof Error?error.message:String(error)};}
+  }catch(error){return {ok:false,mutated,error:error instanceof Error?error.message:String(error),...(error instanceof PermissionError?{approvalRequired:error.code==='approval_required',permissionDenied:error.code==='permission_denied'}:{})};}
  }
  async command(name:string,args:string,mode:AgentMode,signal?:AbortSignal):Promise<string>{if(mode==='plan')throw new Error('Plugin commands are disabled in plan mode');await this.prepare(mode,signal);const handler=this.handlers.get(name);if(!handler)throw new Error(`Unknown command: ${name}`);signal?.throwIfAborted();return handler(args,{workspace:this.workspace,signal});}
  async turnEnd(result:{status:string;text:string},mode:AgentMode):Promise<void>{if(mode==='build')for(const hook of this.hooks)await hook(result);}

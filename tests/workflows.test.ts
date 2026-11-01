@@ -9,6 +9,20 @@ afterEach(async()=>{for(const root of roots.splice(0)) await rm(root,{recursive:
 async function root(){const r=await mkdtemp(join(tmpdir(),'nim-workflow-'));roots.push(r);await writeFile(join(r,'a.ts'),'export const n = 1;');return r;}
 function response(content:string, tool?:string,args:unknown={}){return [{id:'x',object:'chat.completion.chunk' as const,created:0,model:'test',choices:[{index:0,delta:tool?{tool_calls:[{index:0,id:'call',type:'function' as const,function:{name:tool,arguments:JSON.stringify(args)}}]}:{content},finish_reason:tool?'tool_calls' as const:'stop' as const}]}];}
 class Client extends EventEmitter { requests:any[]=[]; constructor(public replies:any[]=[]){super();} async stream(input:any){this.requests.push(input);const r=this.replies.shift();if(!r)return {ok:false as const,error:'offline'};for(const c of r)if(c.choices[0].delta.content)this.emit('onTokenStream',c.choices[0].delta.content);return {ok:true as const,value:r};} }
+it('persists effort, sends it on every tool turn and restores it in a fresh engine', async () => {
+  const r = await root(); const directory = join(r, 'sessions');
+  const client = new Client([response('', 'get_repo_map'), response('Done')]);
+  const agent = new AgentLoop({ workspace: r, client, session: { directory } });
+  await agent.initialize(); agent.setEffort('high');
+  expect((await agent.run('Inspect')).status).toBe('completed');
+  expect(client.requests.map(request => request.effort)).toEqual(['high', 'high']);
+  const id = agent.sessionId!; await agent.close();
+  const restored = new AgentLoop({ workspace: r, client: new Client([]), session: { directory, id } });
+  try {
+    await restored.initialize(); expect(restored.effort).toBe('high');
+    restored.setModel('custom/new-model'); expect(restored.effort).toBe('auto');
+  } finally { await restored.close(); }
+});
 it('persists and resumes context in a fresh engine',async()=>{
  const r=await root();const dir=join(r,'sessions');const first=new AgentLoop({workspace:r,client:new Client([response('Remembered')]),session:{directory:dir}});
  await first.run('Remember blue');const id=first.sessionId!;await first.close();

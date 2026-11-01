@@ -1,0 +1,140 @@
+{
+  "version": 1,
+  "checkedAt": "2026-11-01T00:15:26.437Z",
+  "endpoint": "https://integrate.api.nvidia.com/v1",
+  "models": [
+    {
+      "model": "mistralai/mistral-large-4-1t-a52b",
+      "streaming": {
+        "status": "passed",
+        "durationMs": 6185,
+        "detail": "Complete streamed text response."
+      },
+      "systemPrompt": {
+        "status": "passed",
+        "durationMs": 6185,
+        "detail": "The system instruction marker was followed."
+      },
+      "tools": {
+        "status": "passed",
+        "durationMs": 5066,
+        "detail": "Batch call, arguments and tool result continuation checked."
+      },
+      "efforts": {
+        "none": {
+          "status": "failed",
+          "durationMs": 366,
+          "detail": "NIM returned HTTP 400.",
+          "httpStatus": 400
+        },
+        "high": {
+          "status": "passed",
+          "durationMs": 5707,
+          "detail": "The system instruction marker was followed."
+        }
+      }
+    },
+    {
+      "model": "deepseek-ai/deepseek-v4.1-flash",
+      "streaming": {
+        "status": "failed",
+        "durationMs": 45039,
+        "detail": "Probe timed out after 45000 ms, including queue wait."
+      },
+      "systemPrompt": {
+        "status": "failed",
+        "durationMs": 45039,
+        "detail": "Probe timed out after 45000 ms, including queue wait."
+      },
+      "tools": {
+        "status": "skipped",
+        "durationMs": 0,
+        "detail": "Endpoint unavailable; no further probes sent."
+      },
+      "efforts": {}
+    },
+    {
+      "model": "minimaxai/minimax-m3.1-flash",
+      "streaming": {
+        "status": "passed",
+        "durationMs": 5366,
+        "detail": "Complete streamed text response."
+      },
+      "systemPrompt": {
+        "status": "passed",
+        "durationMs": 5366,
+        "detail": "The system instruction marker was followed."
+      },
+      "tools": {
+        "status": "passed",
+        "durationMs": 10438,
+        "detail": "Batch call, arguments and tool result continuation checked."
+      },
+      "efforts": {
+        "low": {
+          "status": "passed",
+          "durationMs": 2824,
+          "detail": "The system instruction marker was followed."
+        },
+        "medium": {
+          "status": "passed",
+          "durationMs": 6478,
+          "detail": "The system instruction marker was followed."
+        },
+        "high": {
+          "status": "passed",
+          "durationMs": 7465,
+          "detail": "The system instruction marker was followed."
+        },
+        "xhigh": {
+          "status": "passed",
+          "durationMs": 9311,
+          "detail": "The system instruction marker was followed."
+        },
+        "max": {
+          "status": "passed",
+          "durationMs": 8753,
+          "detail": "The system instruction marker was followed."
+        }
+      }
+    },
+    {
+      "model": "z-ai/glm-5.3-flash",
+      "streaming": {
+        "status": "failed",
+        "durationMs": 45025,
+        "detail": "Probe timed out after 45000 ms, including queue wait."
+      },
+      "systemPrompt": {
+        "status": "failed",
+        "durationMs": 45025,
+        "detail": "Probe timed out after 45000 ms, including queue wait."
+      },
+      "tools": {
+        "status": "skipped",
+        "durationMs": 0,
+        "detail": "Endpoint unavailable; no further probes sent."
+      },
+      "efforts": {}
+    },
+    {
+      "model": "nvidia/nemotron-3.5-bolt-e4b",
+      "streaming": {
+        "status": "passed",
+        "durationMs": 1292,
+        "detail": "Complete streamed text response."
+      },
+      "systemPrompt": {
+        "status": "passed",
+        "durationMs": 1292,
+        "detail": "The system instruction marker was followed."
+      },
+      "tools": {
+        "status": "passed",
+        "durationMs": 3459,
+        "detail": "Batch call, arguments and tool result continuation checked."
+      },
+      "efforts": {}
+    }
+  ]
+}
