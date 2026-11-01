@@ -3,24 +3,7 @@ import { Box, Text } from 'ink';
 import type { UiState } from './controller.js';
 import { theme } from './theme.js';
 import { modelName } from './text.js';
-import { RoamingMascot, type KaironMood } from './RoamingMascot.js';
 import stringWidth from 'string-width';
-export function ActivityBar({ state, showMascot = false, columns = 80 }: { state: UiState; showMascot?: boolean; columns?: number }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    setNow(Date.now());
-    if (state.cooldownUntil <= Date.now()) return;
-    const timer = setInterval(() => setNow(Date.now()), 100);
-    return () => clearInterval(timer);
-  }, [state.cooldownUntil]);
-  const remaining = Math.max(0, state.cooldownUntil - now);
-  const waitText = `${state.cooldownReason === 'retry' ? 'Retry' : 'Cooling down'}: ${(remaining / 1000).toFixed(1)}s`;
-  const mood: KaironMood = remaining ? state.cooldownReason === 'retry' ? 'error' : 'pacing'
-    : state.busy ? 'thinking' : state.history.at(-1)?.kind === 'error' ? 'error' : 'idle';
-  return <Box flexDirection="column">
-    {showMascot && <RoamingMascot mood={mood} columns={columns} statusText={remaining ? waitText : state.busy ? state.activity : mood === 'error' ? 'Check the error above' : undefined} />}
-  </Box>;
-}
 
 export function StatusBar({ state, columns = 80 }: { state: UiState; columns?: number }) {
   const [now, setNow] = useState(Date.now());

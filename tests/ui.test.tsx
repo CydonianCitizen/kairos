@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { App } from '../src/ui/App.js';
 import { DiffBlock } from '../src/ui/DiffBlock.js';
-import { StatusBar, ActivityBar } from '../src/ui/StatusBar.js';
+import { StatusBar } from '../src/ui/StatusBar.js';
 import { Banner } from '../src/ui/Banner.js';
 import { ModelPicker } from '../src/ui/ModelPicker.js';
 import { UiController } from '../src/ui/controller.js';
@@ -54,28 +54,6 @@ it('keeps the input and footer reachable and avoids roaming mascot above the inp
     app?.unmount(); app?.cleanup(); await controller.close();
     await rm(root, { recursive: true, force: true });
   }
-});
-it('drives Kairon from work, pacing, retry and failed-turn states', async () => {
-  const state = { history: [], model: 'test/model', busy: true, activity: 'Inspecting AST Graph', cooldownUntil: 0, cooldownReason: '' };
-  const app = render(<ActivityBar state={state} showMascot columns={60} />);
-  expect(app.lastFrame()).toContain('✦ ✦');
-  expect(app.lastFrame()).toContain('Inspecting AST Graph');
-  app.rerender(<ActivityBar state={{ ...state, cooldownUntil: Date.now() + 250, cooldownReason: 'pacing' }} showMascot columns={60} />);
-  await tick();
-  expect(app.lastFrame()).toContain('─ ─');
-  expect(app.lastFrame()).toContain('Cooling down');
-  await new Promise(resolve => setTimeout(resolve, 350));
-  expect(app.lastFrame()).not.toContain('─ ─');
-  app.rerender(<ActivityBar state={{ ...state, cooldownUntil: Date.now() + 1000, cooldownReason: 'retry' }} showMascot columns={60} />);
-  await tick();
-  expect(app.lastFrame()).toContain('× ×');
-  expect(app.lastFrame()).toContain('Retry');
-  app.rerender(<ActivityBar state={{ ...state, busy: false, history: [{ id: 1, kind: 'error', text: 'HTTP error' }] }} showMascot columns={60} />);
-  await tick();
-  expect(app.lastFrame()).toContain('× ×');
-  app.rerender(<ActivityBar state={{ ...state, busy: false }} showMascot columns={60} />);
-  await tick();
-  expect(app.lastFrame()).toContain('● ●');
 });
 it('keeps model and effort on a left-aligned footer even in narrow terminals', () => {
   const state = { history: [], model: 'provider/a-very-long-model-name-for-the-terminal', effort: 'high' as const, busy: false, activity: 'Ready', streaming: '', cooldownUntil: 0, cooldownReason: '' };
