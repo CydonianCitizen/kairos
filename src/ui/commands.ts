@@ -9,6 +9,7 @@ export const COMMANDS: CommandSuggestion[] = [
   { name: '/graph', description: 'Rebuild and inspect the code graph' },
   { name: '/context', description: 'Inspect attached references and their budget' },
   { name: '/undo', description: 'Undo the latest KAIROS file-edit batch' },
+  { name: '/diff', description: 'Inspect the full diff of the latest file edits' },
   { name: '/rewind', description: 'Restore conversation or files to a previous prompt' },
   { name: '/tasks', description: 'Manage supervised background shell tasks' },
   { name: '/memory', description: 'Inspect or manage durable project notes' },

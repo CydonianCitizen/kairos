@@ -12,7 +12,7 @@ import type { Draft } from './prompt-editor.js';
 import type { RewindSummary } from '../core/rewind-store.js';
 import type { TaskInfo } from '../core/background-tasks.js';
 import type { WorkspaceScope } from '../tools/fs-tools.js';
-export interface ToolDisplay { name:string;id:string;result?:ToolResult;arguments?:string }
+export interface ToolDisplay { name:string;id:string;result?:ToolResult;arguments?:string;detail?:string }
 export interface HistoryEntry { id:number;kind:'user'|'assistant'|'info'|'error'|'tool'|'diff'|'thinking';text:string;tool?:ToolDisplay }
 export interface SideQuestionDisplay extends SideQuestionEvent { streaming:string; result?:AgentResult; cooldownUntil:number; cooldownReason:string }
 export interface QueueEditState {id:number;draft:Draft;previousDraft:Draft;error?:string}
@@ -57,6 +57,7 @@ Esc: close menu, or cancel work · Ctrl+C: cancel, or exit when idle`;
 export class UiController extends EventEmitter<{change:[];exit:[]}> {
  private state:UiState;private nextId=0;private startPromise?:Promise<void>;private disposed=false;private readonly detach:()=>void;
  private submittedPrompts: string[] = [];
+ private lastDiffs: string[] = [];
  private approvalResolve?: (allowed:boolean)=>void;
  readonly interaction:Interaction;
  constructor(readonly agent:AgentLoop,readonly availableModels:readonly string[]=MODELS.map(model=>model.id),options:{showThinking?:boolean}={}){
@@ -91,9 +92,24 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
    this.flush();this.update({lastTool:{...e,arguments:e.arguments?.slice(0,2000)},activity:safeText(e.name)});
   };
   const end=(e:ToolDisplay&{result:ToolResult})=>{
-   const {id,name,result}=e;this.update({lastTool:{id,name,result:JSON.parse(serializeToolResult(result,2000)) as ToolResult},activity:'Waiting for NIM'});
-   this.add('tool',name,{id,name,result:{ok:result.ok,error:result.error,mutated:result.mutated}});
-   if(Array.isArray(result.result))for(const item of result.result)if(item&&typeof item==='object'&&item.ok===true&&typeof item.diff==='string')this.add('diff',item.diff);
+   const {id,name,result}=e;
+   const toolArgs=this.state.lastTool?.arguments?.slice(0,500);
+   let diffstatDetail:string|undefined=undefined;
+   if(Array.isArray(result.result)){
+    let added=0;let removed=0;
+    for(const item of result.result){
+     if(item&&typeof item==='object'&&typeof item.diff==='string'){
+      this.lastDiffs.push(item.diff);
+      for(const line of item.diff.split('\n')){
+       if(line.startsWith('+')&&!line.startsWith('+++'))added++;
+       else if(line.startsWith('-')&&!line.startsWith('---'))removed++;
+      }
+     }
+    }
+    if(added||removed)diffstatDetail=`(+${added} -${removed})`;
+   }
+   this.update({lastTool:{id,name,result:JSON.parse(serializeToolResult(result,2000)) as ToolResult},activity:'Waiting for NIM'});
+   this.add('tool',name,{id,name,arguments:toolArgs,detail:diffstatDetail,result:{ok:result.ok,error:result.error,mutated:result.mutated}});
   };
   const turnStart=(prompt:string)=>{this.add('user',prompt);this.update({busy:true,activity:'Thinking',streaming:'',thinkingStream:'',cooldownUntil:0,modelPickerOpen:false,effortPickerOpen:false,resumeSessions:undefined,resumeError:undefined,rewindPoints:undefined});};
   // Explicit listeners keep UI state independent from callers awaiting queued prompts.
@@ -256,11 +272,16 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
     case '/model':if(!args){this.update({modelPickerOpen:true,effortPickerOpen:false,resumeSessions:undefined,resumeError:undefined});break;}this.agent.setModel(args);this.update({modelPickerOpen:false});break;
     case '/effort':if(!args){this.update({effortPickerOpen:true,modelPickerOpen:false,resumeSessions:undefined,resumeError:undefined});break;}this.agent.setEffort(args);this.update({effortPickerOpen:false});break;
     case '/mode':case '/plan':case '/build':this.agent.setMode((command==='/mode'?args:command.slice(1)) as AgentMode);this.add('info',`Mode: ${this.agent.mode}`);break;
-    case '/clear':this.agent.clear();this.clearSideQuestions();this.add('info','Conversation cleared. Terminal scrollback preserved.');break;
+    case '/clear':this.agent.clear();this.clearSideQuestions();this.lastDiffs=[];this.add('info','Conversation cleared. Terminal scrollback preserved.');break;
     case '/compact':if(args&&args!=='local')throw new Error('Use /compact or /compact local');if(!await this.agent.compactContext({strategy:args==='local'?'local':'model',signal}))this.add('info','Nothing to compact.');break;
     case '/graph':await this.agent.initialize(signal);this.add('info',this.agent.graphSnapshot!.getRepoMap(args||undefined));break;
     case '/context':{const snapshot=this.agent.contextSnapshot;this.add('info',`Explicit references: ${snapshot.references.length} · ${snapshot.chars}/${snapshot.maxChars} characters\n`+snapshot.references.map(ref=>`${ref.kind}: ${ref.path}:${ref.startLine}–${ref.endLine}${ref.name?` ${ref.name}`:''}${ref.truncated?' [truncated]':''}`).join('\n'));break;}
     case '/undo':{if(args)throw new Error('Use /undo without arguments');const results=await this.agent.undoLast(signal);if(!results.length)this.add('info','No KAIROS edit batch to undo.');for(const result of results){if(result.ok&&result.diff)this.add('diff',result.diff);else if(!result.ok)this.add('error',`${result.path}: ${result.error}`);}break;}
+    case '/diff':{
+     if(!this.lastDiffs.length)this.add('info','No recent file edits to inspect.');
+     else for(const diff of this.lastDiffs)this.add('diff',diff);
+     break;
+    }
     case '/sessions':this.add('info',(await this.agent.listSessions()).map(s=>`${s.id} ${s.updatedAt} ${s.mode} ${s.model} · ${s.name??s.title??'Empty session'}`).join('\n')||'No sessions.');break;
     case '/rename':if(!args)throw new Error('Use /rename SESSION_NAME');await this.agent.renameSession(args);this.add('info',`Session renamed: ${this.agent.sessionName}`);break;
     case '/branch':{const {model,text}=conversationArgs(args);const branch=await this.agent.branchSession({model,name:text||undefined});this.update({lastTool:undefined,streaming:''});this.add('info',`Branched to ${branch.sessionId}${this.agent.sessionName?` · ${this.agent.sessionName}`:''} · ${modelName(this.agent.model)}. Original: /resume ${branch.parentId}`);break;}

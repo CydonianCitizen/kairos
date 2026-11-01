@@ -27,7 +27,8 @@ it('executes slash commands locally, preserves scrollback and completes file/sym
   expect(controller.suggestions('Read @ma')).toContain('math.ts');
   expect(controller.suggestions('Read @file:ma')).toContain('file:math.ts');
   expect(controller.suggestions('Read @symbol:su')).toContain('symbol:sum');
-  expect(controller.commandSuggestions('/')).toHaveLength(29);
+  expect(controller.commandSuggestions('/')).toHaveLength(30);
+  expect(controller.commandSuggestions('/dif').map(item => item.name)).toEqual(['/diff']);
   expect(controller.commandSuggestions('/mod').map(item => item.name)).toEqual(['/model', '/mode']);
   expect(controller.commandSuggestions('/think').map(item => item.name)).toEqual(['/thinking']);
   expect(controller.commandSuggestions('/scop').map(item => item.name)).toEqual(['/scope']);

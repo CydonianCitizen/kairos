@@ -47,14 +47,18 @@ export function App({ controller, version }: { controller: UiController; version
   const headerRows = rows >= 16 && (!queueFocus || rows >= 20) ? 6 : 1;
   const banner = headerRows === 1 ? <Text color={theme.brand} wrap="truncate">K A I R O S (κ) · v{version}</Text> : <Banner version={version} model={state.model} graphStats={state.graph} columns={columns} />;
   const bannerEntry = <Box key="kairos-banner" flexDirection="column" marginBottom={1}>{banner}</Box>;
-  const historyEntries = (ready ? state.history : []).map(entry => <Box key={entry.id} flexDirection="column" marginBottom={1}>
+  const historyEntries = (ready ? state.history : []).map(entry => {
+    const isCompact = entry.kind === 'tool' || entry.kind === 'thinking';
+    return <Box key={entry.id} flexDirection="column" marginBottom={isCompact ? 0 : 1}>
       {entry.kind === 'diff' ? <DiffBlock diff={entry.text} /> : entry.kind === 'tool' && entry.tool ? <ToolCallBadge tool={entry.tool} /> :
-       entry.kind === 'thinking' ? <Box flexDirection="column" marginY={1}>
-         <Text color={theme.graph} bold>💭 Thinking:</Text>
-         <Box paddingLeft={2}><Text color={theme.borderMuted} italic>{formatMarkdown(entry.text)}</Text></Box>
+       entry.kind === 'thinking' ? <Box flexDirection="row" marginY={0}>
+         <Text color={theme.graph} bold>💭 Thought </Text>
+         <Text color={theme.borderMuted}>({entry.text.split('\n').filter(Boolean).length} lines): </Text>
+         <Text color={theme.borderMuted} italic wrap="truncate">{safeText(entry.text.replace(/\s+/g, ' ').slice(0, 80))}…</Text>
        </Box> :
         <Text color={entry.kind === 'error' ? theme.nimError : entry.kind === 'user' ? theme.brand : entry.kind === 'info' ? theme.borderMuted : theme.textPrimary}>{entry.kind === 'user' ? '❯ ' : entry.kind === 'assistant' ? '● ' : ''}{entry.kind === 'assistant' ? formatMarkdown(entry.text) : entry.text}</Text>}
-    </Box>);
+    </Box>;
+  });
   const entries = ready ? (state.history.length > 0 ? [bannerEntry, ...historyEntries] : []) : [];
   const header = ready && state.history.length === 0 ? banner : undefined;
   const contentRows = Math.max(1, rows - (header ? headerRows : 0) - 1);
