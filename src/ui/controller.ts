@@ -161,6 +161,10 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
  }
  suggestions(input:string):string[]{
   if(/^\/\S*$/.test(input))return this.commandSuggestions(input).map(command=>command.name);
+  if(input.startsWith('/skill ')){
+   const term=input.slice(7).toLowerCase();
+   return (this.agent.extensions?.skillNames??[]).filter(name=>name.toLowerCase().includes(term)).map(name=>`/skill ${name}`);
+  }
   const match=input.match(/(?:^|\s)@([^\s]*)$/);const graph=this.agent.graphSnapshot;if(!match||!graph)return [];
   const prefix=match[1]!.match(/^(file:|symbol:)/)?.[1]??'';
   const term=match[1]!.slice(prefix.length).toLowerCase();const names=new Set<string>();
@@ -264,8 +268,20 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
       break;
     }
     case '/new':await this.agent.newSession();this.add('info',`New session: ${this.agent.sessionId}`);break;
-    case '/skills':this.add('info',this.agent.extensions?.skillNames.join('\n')||'No skills. Use --trust-workspace to load .nim/skills.');break;
-    case '/skill':if(!this.agent.extensions)throw new Error('No skills configured');this.agent.extensions.activateSkill(args);this.add('info',`Skill ${args} added to the next turn context.`);break;
+    case '/skills':{
+      const skills=this.agent.extensions?.skillsList??[];
+      if(!skills.length)this.add('info','No skills available.');
+      else this.add('info',`Available skills (${skills.length}):\n`+skills.map(s=>`  ${s.name.padEnd(25)} · ${s.description}`).join('\n'));
+      break;
+    }
+    case '/skill':{
+      const name=args.trim();
+      if(!name)throw new Error('Use /skill SKILL_NAME');
+      if(!this.agent.extensions)throw new Error('No skills configured');
+      this.agent.extensions.activateSkill(name);
+      this.add('info',`Skill ${name} added to the next turn context.`);
+      break;
+    }
     case '/extensions':this.add('info',this.agent.extensions?.commands.join('\n')||'No plugin commands.');break;
     case '/mcp':this.add('info',this.agent.extensions?.serverNames.join('\n')||'No MCP servers connected (loaded in build mode).');break;
     default:if(!this.agent.extensions?.commands.includes(command!.slice(1)))throw new Error(`Unknown command: ${command}. Use /help.`);this.add('info',await this.agent.command(command!.slice(1),args,signal));

@@ -138,6 +138,23 @@ it('includes loaded plugin commands in the slash menu', async () => {
     expect(controller.getSnapshot().history.at(-1)?.text).toBe('Hello from plugin');
   } finally { await controller.close(); }
 });
+it('lists skills and autocompletes /skill commands', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'kairos-skills-menu-')); roots.push(root);
+  await mkdir(join(root, '.nim', 'skills', 'caveman'), { recursive: true });
+  await writeFile(join(root, '.nim', 'skills', 'caveman', 'SKILL.md'), '---\nname: caveman\ndescription: Terse voice\n---\nSpeak briefly.');
+  const extensions = await ExtensionHost.load(root, true, { loadGlobal: false });
+  const client = new class extends EventEmitter { async stream() { throw new Error('No NIM calls expected'); } }();
+  const controller = new UiController(new AgentLoop({ workspace: root, extensions, client, session: false }));
+  try {
+    await controller.start();
+    expect(controller.suggestions('/skill ')).toEqual(['/skill caveman']);
+    await controller.submit('/skills');
+    expect(controller.getSnapshot().history.at(-1)?.text).toContain('caveman');
+    expect(controller.getSnapshot().history.at(-1)?.text).toContain('Terse voice');
+    await controller.submit('/skill caveman');
+    expect(controller.getSnapshot().history.at(-1)?.text).toBe('Skill caveman added to the next turn context.');
+  } finally { await controller.close(); }
+});
 it('parses CLI flags strictly and supports help without credentials', () => {
   expect(parseCliArgs(['--help']).help).toBe(true);
   expect(parseCliArgs(['--cwd', '.', '--model', 'meta/llama-3.3-70b-instruct', '--prompt', 'hello']).prompt).toBe('hello');
