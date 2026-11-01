@@ -275,7 +275,7 @@ it('accepts slash commands, Tab completion and retains Static history across tur
     app.unmount();
   } finally { await controller.close(); await rm(root, { recursive: true, force: true }); }
 });
-it('keeps the banner in the live area after indexing, including across updates and resize', async () => {
+it('renders the startup banner with real metadata and preserves scrollback across updates and resize', async () => {
   const root = await mkdtemp(join(tmpdir(), 'kairos-static-'));
   const client = new class extends EventEmitter {
     async stream() { return { ok: true as const, value: [{ id: 'r', object: 'chat.completion.chunk' as const, model: 'test', created: 0, choices: [{ index: 0, delta: { content: 'Done' }, finish_reason: 'stop' as const }] }] }; }
@@ -297,7 +297,7 @@ it('keeps the banner in the live area after indexing, including across updates a
     stdout.columns = 40; stdout.emit('resize'); await tick();
     await controller.submit('Hello'); await tick();
     const output = safeText(writes.join(''));
-    expect(output.match(/K A I R O S/g)!.length).toBeGreaterThan(1);
+    expect(output.match(/K A I R O S/g)!.length).toBeGreaterThanOrEqual(1);
     expect(output).toContain('1 files (1 symbols)');
     expect(output).toContain('● Done');
     expect(writes.join('')).not.toContain('\x1b[?1049h');

@@ -43,13 +43,17 @@ export function App({ controller, version }: { controller: UiController; version
     void controller.start().then(() => { if (mounted) setReady(true); });
     return () => { mounted = false; controller.off('exit', stop); controller.dispose(); };
   }, [controller, exit]);
-  const entries = (ready ? state.history : []).map(entry => <Box key={entry.id} flexDirection="column" marginBottom={1}>
+  const queueFocus = !!state.queueEdit || state.selectedQueuedId !== undefined;
+  const headerRows = rows >= 16 && (!queueFocus || rows >= 20) ? 6 : 1;
+  const banner = headerRows === 1 ? <Text color={theme.brand} wrap="truncate">K A I R O S (κ) · v{version}</Text> : <Banner version={version} model={state.model} graphStats={state.graph} columns={columns} />;
+  const bannerEntry = <Box key="kairos-banner" flexDirection="column" marginBottom={1}>{banner}</Box>;
+  const historyEntries = (ready ? state.history : []).map(entry => <Box key={entry.id} flexDirection="column" marginBottom={1}>
       {entry.kind === 'diff' ? <DiffBlock diff={entry.text} /> : entry.kind === 'tool' && entry.tool ? <ToolCallBadge tool={entry.tool} /> :
         <Text color={entry.kind === 'error' ? theme.nimError : entry.kind === 'user' ? theme.brand : entry.kind === 'info' ? theme.borderMuted : theme.textPrimary}>{entry.kind === 'user' ? '❯ ' : entry.kind === 'assistant' ? '● ' : ''}{entry.kind === 'assistant' ? formatMarkdown(entry.text) : entry.text}</Text>}
     </Box>);
-  const queueFocus = !!state.queueEdit || state.selectedQueuedId !== undefined;
-  const headerRows = rows >= 16 && (!queueFocus || rows >= 20) ? 6 : 1;
-  const contentRows = Math.max(1, rows - headerRows - 1);
+  const entries = ready ? (state.history.length > 0 ? [bannerEntry, ...historyEntries] : []) : [];
+  const header = ready && state.history.length === 0 ? banner : undefined;
+  const contentRows = Math.max(1, rows - (header ? headerRows : 0) - 1);
   const showQueue = !!state.queued && (!queueFocus || contentRows >= 6);
   const queueVisible = showQueue ? Math.min(state.queue?.length ?? 0, rows >= 24 ? 2 : 0) : 0;
   const queueRows = showQueue ? 1 + queueVisible : 0;
@@ -63,8 +67,7 @@ export function App({ controller, version }: { controller: UiController; version
   const sideRows = Math.max(3, Math.min(contentRows - 2, 14));
   const approvalRows = Math.max(3, Math.min(contentRows - 2, 16));
   const minDockRows = state.approval ? approvalRows + 1 : state.rewindPoints ? Math.min(contentRows,12)+1 : state.sidePanelOpen ? sideRows + 1 : state.modelPickerOpen || state.effortPickerOpen || state.resumeSessions ? 13 : baseDockRows + (showMascot ? 4 : 0);
-  const header = headerRows === 1 ? <Text color={theme.brand} wrap="truncate">K A I R O S (κ) · v{version}</Text> : <Banner version={version} model={state.model} graphStats={state.graph} columns={columns} />;
-  return <PinnedLayout entries={entries} columns={columns} rows={rows} minDockRows={minDockRows} header={header} headerRows={headerRows}>
+  return <PinnedLayout entries={entries} columns={columns} rows={rows} minDockRows={minDockRows} header={header} headerRows={header ? headerRows : 0}>
     {state.approval ? <ApprovalPanel key={state.approval.id} request={state.approval} columns={columns} maxRows={approvalRows} onDecision={allowed => controller.respondApproval(allowed)} onCancel={() => controller.cancel()} /> : state.rewindPoints ? <RewindPicker points={state.rewindPoints} maxRows={Math.max(4,Math.min(contentRows-1,12))} onSelect={(id,scope)=>{void controller.submit(`/rewind ${id} ${scope}`);}} onCancel={()=>controller.cancel()} /> : state.sidePanelOpen && state.sideQuestion ? <SideQuestionPanel key={state.sideQuestion.question} question={state.sideQuestion} pending={!!state.sideBusy} mainBusy={state.busy} columns={columns} maxRows={sideRows} onHide={() => controller.hideSideQuestion()} onCancel={() => controller.cancelSideQuestion()} onClear={() => controller.clearSideQuestions()} /> : state.modelPickerOpen ? <ModelPicker model={state.model} models={controller.availableModels} maxRows={Math.min(contentRows - 2, 12)} onSelect={model => { void controller.submit(`/model ${model}`); }} onCancel={() => controller.cancel()} /> : state.effortPickerOpen ? <EffortPicker model={state.model} effort={state.effort ?? 'auto'} maxRows={Math.min(contentRows - 2, 12)} onSelect={effort => { void controller.submit(`/effort ${effort}`); }} onCancel={() => controller.cancel()} /> : state.resumeSessions ? <SessionPicker sessions={state.resumeSessions} currentId={state.sessionId} pending={state.busy} error={state.resumeError} maxRows={Math.max(4, Math.min(contentRows - 2, 12))} onSelect={id => { void controller.submit(`/resume ${id}`); }} onCancel={() => controller.cancel()} /> : <>
     {!!thinkingRows && <Box height={thinkingRows} overflow="hidden"><Text color={theme.borderMuted} italic wrap="truncate-end">💭 Thinking: {safeText(state.thinkingStream ?? '').replace(/[\r\n\t]+/g, ' ')}</Text></Box>}
     {!!streamRows && <Box height={streamRows} overflow="hidden"><Text color={theme.textPrimary}>{state.streaming.slice(-Math.max(30, columns * 2)).split('\n').slice(-streamRows).join('\n')}</Text></Box>}

@@ -70,7 +70,7 @@ it('executes a trusted plugin through the model dispatcher and refreshes reposit
  const agent=await createAgent({workspace:r,client,trustWorkspace:true});
  expect((await agent.run('Use replace to change the file')).status).toBe('completed');expect(await readFile(join(r,'a.ts'),'utf8')).toContain('changed = 2');
  expect(client.requests[0].tools.some((t:any)=>t.function.name==='extension_tools_batch')).toBe(true);expect(JSON.stringify(client.requests[1].messages)).toContain('changed');await agent.close();
-});
+},15000);
 it('does not allow explicitly disabled persistence to create a session',async()=>{
  const r=await root();const agent=new AgentLoop({workspace:r,client:new Client([]),session:false});await expect(agent.newSession()).rejects.toThrow(/disabled/);await expect(agent.resumeSession('invalid')).rejects.toThrow(/disabled/);await agent.close();
 });

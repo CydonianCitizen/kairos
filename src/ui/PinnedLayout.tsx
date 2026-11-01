@@ -29,14 +29,12 @@ export function PinnedLayout({ entries, rows, columns, minDockRows, children, he
       });
     }} />}
     <Static items={entries.slice(0, layout.count)}>{entry => entry}</Static>
-    {header ? <Box flexDirection="column" height={available} overflow="hidden">
-      <Box height={headerRows} flexShrink={0} overflow="hidden">{header}</Box>
-      <Box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} justifyContent="flex-end" overflow="hidden">
+    <Box flexDirection="column" height={header ? available : available - visibleHistoryRows} justifyContent="flex-end" overflow="hidden">
+      {header ? <Box key="pinned-header" height={headerRows} flexShrink={0} overflow="hidden">{header}</Box> : null}
+      {header ? <Box key="pinned-history" flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0} justifyContent="flex-end" overflow="hidden">
         <Box flexDirection="column" flexShrink={0}>{entries.slice(-30)}</Box>
-      </Box>
-      <Box flexDirection="column" flexShrink={0}>{children}</Box>
-    </Box> : <Box flexDirection="column" height={available - visibleHistoryRows} justifyContent="flex-end" overflow="hidden">
-      <Box flexDirection="column" flexShrink={0}>{children}</Box>
-    </Box>}
+      </Box> : null}
+      <Box key="pinned-dock" flexDirection="column" flexShrink={0}>{children}</Box>
+    </Box>
   </Box>;
 }

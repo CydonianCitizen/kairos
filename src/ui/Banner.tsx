@@ -16,8 +16,19 @@ export function Banner({ version, model, graphStats, columns = 80 }: BannerProps
   const width = Math.max(1, columns - (wide ? 17 : 0));
   return <Box marginBottom={1} width={Math.max(1, columns)}>
     {wide && <Box flexDirection="column" width={14} flexShrink={0} marginRight={3}>
-      <Text color={theme.brand} bold>{' ███    ▄███▀\n ███  ▄███▀  \n ███████▀    '}</Text>
-      <Text color={theme.brandAccent} bold>{' ███▀▀███▄   \n ███   ▀████▄▀'}</Text>
+      <Text color={theme.brand} bold wrap="truncate">{'   ▄▄██▀    '}</Text>
+      <Text wrap="truncate">
+        <Text color={theme.brand}>{' ▄██ '}</Text>
+        <Text color={theme.graph} bold>{'● ●'}</Text>
+        <Text color={theme.brand}>{' █▄ '}</Text>
+      </Text>
+      <Text color={theme.brandAccent} bold wrap="truncate">{'  ▄█████▄   '}</Text>
+      <Text wrap="truncate">
+        <Text color={theme.brand} bold>{' ▀▄ '}</Text>
+        <Text color={theme.brandAccent}>{'▀ ▀'}</Text>
+        <Text color={theme.brand} bold>{' ▄▀ '}</Text>
+      </Text>
+      <Text color={theme.brandAccent} wrap="truncate">{'   ▀   ▀    '}</Text>
     </Box>}
     <Box flexDirection="column" width={width}>
       <Text wrap="truncate">
