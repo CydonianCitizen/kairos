@@ -13,7 +13,7 @@ import type { RewindSummary } from '../core/rewind-store.js';
 import type { TaskInfo } from '../core/background-tasks.js';
 import type { WorkspaceScope } from '../tools/fs-tools.js';
 export interface ToolDisplay { name:string;id:string;result?:ToolResult;arguments?:string }
-export interface HistoryEntry { id:number;kind:'user'|'assistant'|'info'|'error'|'tool'|'diff';text:string;tool?:ToolDisplay }
+export interface HistoryEntry { id:number;kind:'user'|'assistant'|'info'|'error'|'tool'|'diff'|'thinking';text:string;tool?:ToolDisplay }
 export interface SideQuestionDisplay extends SideQuestionEvent { streaming:string; result?:AgentResult; cooldownUntil:number; cooldownReason:string }
 export interface QueueEditState {id:number;draft:Draft;previousDraft:Draft;error?:string}
 export interface UiState {
@@ -59,9 +59,9 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
  private submittedPrompts: string[] = [];
  private approvalResolve?: (allowed:boolean)=>void;
  readonly interaction:Interaction;
- constructor(readonly agent:AgentLoop,readonly availableModels:readonly string[]=MODELS.map(model=>model.id)){
+ constructor(readonly agent:AgentLoop,readonly availableModels:readonly string[]=MODELS.map(model=>model.id),options:{showThinking?:boolean}={}){
   super();this.interaction=new Interaction(agent);
-  this.state={history:[],busy:false,activity:'Ready',streaming:'',model:agent.model,effort:agent.effort,mode:agent.mode,scope:agent.scope,queued:0,queue:[],cooldownUntil:0,cooldownReason:''};
+  this.state={history:[],busy:false,activity:'Ready',streaming:'',showThinking:options.showThinking??false,model:agent.model,effort:agent.effort,mode:agent.mode,scope:agent.scope,queued:0,queue:[],cooldownUntil:0,cooldownReason:''};
   agent.setApprovalHandler((request,signal)=>new Promise<boolean>((resolve,reject)=>{
    if(this.disposed){reject(new Error('Approval UI is closed'));return;}
    let settled=false;
@@ -72,7 +72,10 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
   }));
   const context=(value:{chars:number;maxChars:number;references:unknown[]})=>this.update({context:{chars:value.chars,maxChars:value.maxChars,references:value.references.length}});
   const background=(tasks:TaskInfo[])=>this.update({backgroundRunning:tasks.filter(task=>task.status==='running').length});agent.on('onBackgroundUpdate',background);
-  const token=(text:string)=>this.update({streaming:this.state.streaming+safeText(text)});
+  const token=(text:string)=>{
+   if(this.state.thinkingStream){this.add('thinking',this.state.thinkingStream);this.update({thinkingStream:'',streaming:safeText(text)});}
+   else this.update({streaming:this.state.streaming+safeText(text)});
+  };
   const reasoning=(text:string)=>{if(this.state.showThinking)this.update({thinkingStream:(this.state.thinkingStream??'')+safeText(text)});};
   const wait=(e:{remainingMs:number;reason:string})=>this.update({cooldownUntil:Date.now()+e.remainingMs,cooldownReason:e.reason});
   const graph=(stats:{files:number;symbols:number;diagnostics:number})=>this.update({graph:stats});
@@ -83,7 +86,10 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
   const sideWait=(e:{remainingMs:number;reason:string})=>{if(this.state.sideQuestion)this.update({sideQuestion:{...this.state.sideQuestion,cooldownUntil:Date.now()+e.remainingMs,cooldownReason:e.reason}});};
   const sideEnd=(e:SideQuestionEvent&{result:AgentResult})=>{if(this.state.sideQuestion)this.update({sideBusy:false,sideQuestion:{...this.state.sideQuestion,result:e.result,cooldownUntil:0}});};
   const steering=(text:string)=>{this.flush();this.add('user',text);};
-  const start=(e:ToolDisplay)=>{this.flush();this.update({lastTool:{...e,arguments:e.arguments?.slice(0,2000)},activity:safeText(e.name)});};
+  const start=(e:ToolDisplay)=>{
+   if(this.state.thinkingStream){this.add('thinking',this.state.thinkingStream);this.update({thinkingStream:''});}
+   this.flush();this.update({lastTool:{...e,arguments:e.arguments?.slice(0,2000)},activity:safeText(e.name)});
+  };
   const end=(e:ToolDisplay&{result:ToolResult})=>{
    const {id,name,result}=e;this.update({lastTool:{id,name,result:JSON.parse(serializeToolResult(result,2000)) as ToolResult},activity:'Waiting for NIM'});
    this.add('tool',name,{id,name,result:{ok:result.ok,error:result.error,mutated:result.mutated}});
@@ -91,7 +97,12 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
   };
   const turnStart=(prompt:string)=>{this.add('user',prompt);this.update({busy:true,activity:'Thinking',streaming:'',thinkingStream:'',cooldownUntil:0,modelPickerOpen:false,effortPickerOpen:false,resumeSessions:undefined,resumeError:undefined,rewindPoints:undefined});};
   // Explicit listeners keep UI state independent from callers awaiting queued prompts.
-  const completed=(event:{result:{status:string;text:string;error?:string}})=>{const r=event.result;this.flush(r.status==='completed'?r.text:'');if(r.status!=='completed')this.add(r.status==='cancelled'?'info':'error',`${r.status}: ${r.error??''}`);this.update({busy:this.interaction.queued>0&&!this.interaction.queuePaused,activity:this.interaction.queuePaused?'Queue paused':'Ready',cooldownUntil:0,thinkingStream:''});};
+  const completed=(event:{result:{status:string;text:string;error?:string}})=>{
+   const r=event.result;
+   if(this.state.thinkingStream){this.add('thinking',this.state.thinkingStream);}
+   this.flush(r.status==='completed'?r.text:'');if(r.status!=='completed')this.add(r.status==='cancelled'?'info':'error',`${r.status}: ${r.error??''}`);
+   this.update({busy:this.interaction.queued>0&&!this.interaction.queuePaused,activity:this.interaction.queuePaused?'Queue paused':'Ready',cooldownUntil:0,thinkingStream:''});
+  };
   const queue=(count:number)=>{const entries=this.interaction.queueSnapshot;this.update({queued:count,queue:entries,queuePaused:this.interaction.queuePaused,busy:this.interaction.busy,
    ...(this.state.queueEdit&&!entries.some(item=>item.id===this.state.queueEdit!.id)?{queueEdit:{...this.state.queueEdit,error:'Message is no longer waiting. Esc restores your previous draft.'}}:{}),
    ...(this.interaction.busy?{}:{activity:this.interaction.queuePaused?'Queue paused':'Ready'})});};

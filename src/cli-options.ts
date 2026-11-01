@@ -12,7 +12,7 @@ export function parseCliArgs(args: string[]) {
     'list-sessions': { type: 'boolean' }, compaction: { type: 'string' },
     effort: { type: 'string' }, 'system-prompt': { type: 'string' }, 'timeout-ms': { type: 'string' }, 'check-models': { type: 'boolean' },
     permissions: { type: 'string' },
-    'no-memory':{type:'boolean'},sandbox:{type:'string'},scope:{type:'string'},
+    'no-memory':{type:'boolean'},sandbox:{type:'string'},scope:{type:'string'},thinking:{type:'boolean'},
   } });
   const number = (value: string | undefined, fallback: number, min: number, max: number) => {
     if (value !== undefined && !/^\d+$/.test(value)) throw new Error(`Expected an integer, received: ${value}`);
@@ -41,6 +41,7 @@ export function parseCliArgs(args: string[]) {
     permissions: values.permissions as 'allow' | 'ask' | 'deny' | undefined,
     noMemory:values['no-memory']??false,sandbox:values.sandbox as 'off'|'required'|undefined,
     scope: values.scope as WorkspaceScope | undefined,
+    thinking: values.thinking ?? false,
     timeoutMs: values['timeout-ms'] === undefined ? undefined : number(values['timeout-ms'], 300000, 1, 2147483647), checkModels: values['check-models'] ?? false,
     maxIterations: number(values['max-iterations'], 12, 1, 100), maxContextChars: number(values['max-context-chars'], 64000, 16000, 1000000) };
 }
@@ -52,6 +53,7 @@ Usage: kairos [options]
   --cwd <directory>            Workspace (default: current directory)
   -m, --model <provider/model> NVIDIA NIM model
   --effort <level>            Reasoning effort supported by the selected model
+  --thinking                  Show model Chain of Thought (CoT) reasoning live
   --system-prompt <file>      Additional instructions (relative to workspace)
   --timeout-ms <count>        HTTP timeout; per-probe deadline for model checks
   --check-models              Probe bundled models, or only --model; saves a report

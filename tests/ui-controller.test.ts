@@ -161,3 +161,16 @@ it('switches modes locally and queues an input while a turn is active',async()=>
  const a=controller.submit('one');const b=controller.submit('two');await Promise.all([a,b]);
  expect(controller.getSnapshot().history.filter(e=>e.kind==='user').map(e=>e.text)).toEqual(['one','two']);await controller.close();
 });
+it('preserves CoT reasoning in history when showThinking is enabled and streams to assistant text', async () => {
+ const { controller, agent } = await setup();
+ await controller.submit('/thinking on');
+ expect(controller.getSnapshot().showThinking).toBe(true);
+ agent.emit('onReasoningStream', 'Step 1: analyze.');
+ agent.emit('onReasoningStream', '\nStep 2: implement.');
+ expect(controller.getSnapshot().thinkingStream).toBe('Step 1: analyze.\nStep 2: implement.');
+ agent.emit('onTokenStream', 'Here is the answer.');
+ expect(controller.getSnapshot().thinkingStream).toBe('');
+ expect(controller.getSnapshot().streaming).toBe('Here is the answer.');
+ expect(controller.getSnapshot().history.some(e => e.kind === 'thinking' && e.text.includes('Step 1: analyze.'))).toBe(true);
+ await controller.close();
+});

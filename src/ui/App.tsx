@@ -49,6 +49,10 @@ export function App({ controller, version }: { controller: UiController; version
   const bannerEntry = <Box key="kairos-banner" flexDirection="column" marginBottom={1}>{banner}</Box>;
   const historyEntries = (ready ? state.history : []).map(entry => <Box key={entry.id} flexDirection="column" marginBottom={1}>
       {entry.kind === 'diff' ? <DiffBlock diff={entry.text} /> : entry.kind === 'tool' && entry.tool ? <ToolCallBadge tool={entry.tool} /> :
+       entry.kind === 'thinking' ? <Box flexDirection="column" marginY={1}>
+         <Text color={theme.graph} bold>💭 Thinking:</Text>
+         <Box paddingLeft={2}><Text color={theme.borderMuted} italic>{formatMarkdown(entry.text)}</Text></Box>
+       </Box> :
         <Text color={entry.kind === 'error' ? theme.nimError : entry.kind === 'user' ? theme.brand : entry.kind === 'info' ? theme.borderMuted : theme.textPrimary}>{entry.kind === 'user' ? '❯ ' : entry.kind === 'assistant' ? '● ' : ''}{entry.kind === 'assistant' ? formatMarkdown(entry.text) : entry.text}</Text>}
     </Box>);
   const entries = ready ? (state.history.length > 0 ? [bannerEntry, ...historyEntries] : []) : [];
@@ -60,16 +64,41 @@ export function App({ controller, version }: { controller: UiController; version
   const queueStart = Math.max(0, (state.queue?.findIndex(item => item.id === state.selectedQueuedId) ?? -1) - queueVisible + 1);
   const showTool = !!state.lastTool && (!queueFocus || contentRows - queueRows >= 6);
   const toolRows = showTool ? expanded && !queueFocus ? 6 : 1 : 0;
-  const thinkingRows = state.showThinking && state.thinkingStream ? 2 : 0;
-  const streamRows = state.streaming ? queueFocus ? Math.min(3, Math.max(0, contentRows - queueRows - toolRows - thinkingRows - 5)) : 3 : 0;
+  const hasThinking = Boolean(state.showThinking && state.thinkingStream);
+  const hasStream = Boolean(state.streaming);
+  const availableContent = Math.max(0, contentRows - 5 - commandRows - queueRows - toolRows);
+  let thinkingRows = 0;
+  let streamRows = 0;
+  if (queueFocus) {
+    thinkingRows = hasThinking ? 2 : 0;
+    streamRows = hasStream ? Math.min(3, Math.max(0, availableContent - thinkingRows - 2)) : 0;
+  } else if (hasThinking && hasStream) {
+    thinkingRows = Math.max(2, Math.min(6, Math.floor(availableContent * 0.35)));
+    streamRows = Math.max(3, Math.min(availableContent - thinkingRows, 25));
+  } else if (hasThinking) {
+    thinkingRows = Math.max(2, Math.min(availableContent, 22));
+  } else if (hasStream) {
+    streamRows = Math.max(3, Math.min(availableContent, 30));
+  }
   const baseDockRows = 5 + commandRows + queueRows + streamRows + thinkingRows + toolRows;
   const sideRows = Math.max(3, Math.min(contentRows - 2, 14));
   const approvalRows = Math.max(3, Math.min(contentRows - 2, 16));
   const minDockRows = state.approval ? approvalRows + 1 : state.rewindPoints ? Math.min(contentRows,12)+1 : state.sidePanelOpen ? sideRows + 1 : state.modelPickerOpen || state.effortPickerOpen || state.resumeSessions ? 13 : baseDockRows;
   return <PinnedLayout entries={entries} columns={columns} rows={rows} minDockRows={minDockRows} header={header} headerRows={header ? headerRows : 0}>
     {state.approval ? <ApprovalPanel key={state.approval.id} request={state.approval} columns={columns} maxRows={approvalRows} onDecision={allowed => controller.respondApproval(allowed)} onCancel={() => controller.cancel()} /> : state.rewindPoints ? <RewindPicker points={state.rewindPoints} maxRows={Math.max(4,Math.min(contentRows-1,12))} onSelect={(id,scope)=>{void controller.submit(`/rewind ${id} ${scope}`);}} onCancel={()=>controller.cancel()} /> : state.sidePanelOpen && state.sideQuestion ? <SideQuestionPanel key={state.sideQuestion.question} question={state.sideQuestion} pending={!!state.sideBusy} mainBusy={state.busy} columns={columns} maxRows={sideRows} onHide={() => controller.hideSideQuestion()} onCancel={() => controller.cancelSideQuestion()} onClear={() => controller.clearSideQuestions()} /> : state.modelPickerOpen ? <ModelPicker model={state.model} models={controller.availableModels} maxRows={Math.min(contentRows - 2, 12)} onSelect={model => { void controller.submit(`/model ${model}`); }} onCancel={() => controller.cancel()} /> : state.effortPickerOpen ? <EffortPicker model={state.model} effort={state.effort ?? 'auto'} maxRows={Math.min(contentRows - 2, 12)} onSelect={effort => { void controller.submit(`/effort ${effort}`); }} onCancel={() => controller.cancel()} /> : state.resumeSessions ? <SessionPicker sessions={state.resumeSessions} currentId={state.sessionId} pending={state.busy} error={state.resumeError} maxRows={Math.max(4, Math.min(contentRows - 2, 12))} onSelect={id => { void controller.submit(`/resume ${id}`); }} onCancel={() => controller.cancel()} /> : <>
-    {!!thinkingRows && <Box height={thinkingRows} overflow="hidden"><Text color={theme.borderMuted} italic wrap="truncate-end">💭 Thinking: {safeText(state.thinkingStream ?? '').replace(/[\r\n\t]+/g, ' ')}</Text></Box>}
-    {!!streamRows && <Box height={streamRows} overflow="hidden"><Text color={theme.textPrimary}>{state.streaming.slice(-Math.max(30, columns * 2)).split('\n').slice(-streamRows).join('\n')}</Text></Box>}
+    {!!thinkingRows && <Box flexDirection="column" height={thinkingRows} overflow="hidden">
+      <Box flexShrink={0}><Text color={theme.graph} bold>💭 Thinking…</Text></Box>
+      <Box flexGrow={1} flexShrink={1} overflow="hidden">
+        <Text color={theme.borderMuted} italic wrap="wrap">
+          {safeText(state.thinkingStream ?? '').split('\n').slice(-Math.max(1, thinkingRows - 1)).join('\n')}
+        </Text>
+      </Box>
+    </Box>}
+    {!!streamRows && <Box flexDirection="column" height={streamRows} overflow="hidden">
+      <Text color={theme.textPrimary} wrap="wrap">
+        {formatMarkdown(state.streaming).split('\n').slice(-streamRows).join('\n')}
+      </Text>
+    </Box>}
     {showTool && state.lastTool && <ToolCallBadge tool={state.lastTool} expanded={expanded && !queueFocus} />}
     {showQueue && <Box flexDirection="column">
       <Text color={theme.brandAccent} wrap="truncate">Queued {state.queued}/20{state.queuePaused ? ' · paused' : ''} · ↑ choose · Enter edit · /queue</Text>

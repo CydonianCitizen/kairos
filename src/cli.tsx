@@ -77,7 +77,7 @@ async function main():Promise<void>{
   return;
  }
  const catalog=await loadModelCatalog(client);
- const controller=new UiController(agent,catalog.models);
+ const controller=new UiController(agent,catalog.models,{showThinking:options.thinking});
  // End input before Ink restores the Windows TTY, so it cannot queue another console read.
  const endInput=()=>{process.stdin.push(null);};controller.on('exit',endInput);
  const instance=render(<App controller={controller} version={VERSION}/>,{exitOnCtrlC:false});
