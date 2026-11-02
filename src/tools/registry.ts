@@ -51,10 +51,10 @@ export class ToolRegistry {
       signal?.throwIfAborted();
       const scope = this.fs.getScope();
       if (scope === 'none') throw new Error(`Tool ${name} is disabled (scope: none)`);
-      if (scope === 'read-only' && !['read_files_batch', 'get_repo_map', 'inspect_symbol_graph', 'load_skills_batch'].includes(name)) {
+      if (scope === 'read-only' && !['read_files_batch', 'get_repo_map', 'inspect_symbol_graph', 'load_skills_batch', 'find_files', 'search_text'].includes(name)) {
         throw new Error(`Tool ${name} is disabled in read-only scope`);
       }
-      if (mode === 'plan' && !['read_files_batch', 'get_repo_map', 'inspect_symbol_graph', 'load_skills_batch'].includes(name)) throw new Error(`Tool ${name} is disabled in plan mode`);
+      if (mode === 'plan' && !['read_files_batch', 'get_repo_map', 'inspect_symbol_graph', 'load_skills_batch', 'find_files', 'search_text'].includes(name)) throw new Error(`Tool ${name} is disabled in plan mode`);
       if (json.length > 64000) throw new Error('Tool arguments exceed 64000 characters');
       const raw: unknown = JSON.parse(json);
       switch (name) {
@@ -115,6 +115,26 @@ export class ToolRegistry {
           const args = object(raw, ['directory'], []);
           const directory = args.directory === undefined ? undefined : text(args.directory, false);
           return { ok: true, result: new GraphTools(this.getGraph()).get_repo_map(directory), mutated: false };
+        }
+        case 'find_files': {
+          const args = object(raw, ['pattern', 'patterns', 'directory', 'limit'], []);
+          const pattern = args.pattern !== undefined ? text(args.pattern, false) : undefined;
+          const patterns = args.patterns !== undefined ? batch(args.patterns).map(p => text(p)) : undefined;
+          const directory = args.directory !== undefined ? text(args.directory, false) : undefined;
+          const limit = typeof args.limit === 'number' && Number.isInteger(args.limit) ? args.limit : undefined;
+          const result = await this.fs.find_files({ pattern, patterns, directory, limit, signal });
+          return { ok: true, result, mutated: false };
+        }
+        case 'search_text': {
+          const args = object(raw, ['query', 'isRegex', 'caseSensitive', 'filePattern', 'directory', 'limit'], ['query']);
+          const query = text(args.query);
+          const isRegex = args.isRegex !== undefined ? Boolean(args.isRegex) : undefined;
+          const caseSensitive = args.caseSensitive !== undefined ? Boolean(args.caseSensitive) : undefined;
+          const filePattern = args.filePattern !== undefined ? text(args.filePattern, false) : undefined;
+          const directory = args.directory !== undefined ? text(args.directory, false) : undefined;
+          const limit = typeof args.limit === 'number' && Number.isInteger(args.limit) ? args.limit : undefined;
+          const result = await this.fs.search_text({ query, isRegex, caseSensitive, filePattern, directory, limit, signal });
+          return { ok: true, result, mutated: false };
         }
         default:
           if (this.extensions?.schemas(mode).some(t => t.type === 'function' && t.function.name === name)) return this.extensions.execute(name, raw, signal, mode,

@@ -7,6 +7,7 @@ import { UndoStore, type UndoBefore, type UndoEntry, type UndoPlanEntry } from '
 import { BackgroundTasks } from '../core/background-tasks.js';
 import { launchShell, validateShell, ShellStartupError, type BashResult, type ShellInvocationBuilder } from '../core/shell-runner.js';
 import { disposeWindowsShellJobs } from '../core/windows-shell-job.js';
+import { SearchTools, type FindFilesOptions, type FindFilesResult, type SearchTextOptions, type SearchTextResult } from './search-tools.js';
 
 export type WorkspaceScope = 'none' | 'read-only' | 'workspace' | 'full';
 export interface Edit { path: string; old_text: string; new_text: string }
@@ -18,6 +19,7 @@ interface PlannedFile { original: Snapshot; current: Buffer | null; aliases: Set
 interface PlannedEdit { edit: Edit; file: PlannedFile; after: Buffer; creating: boolean }
 interface UndoPlan { id: string; entries: UndoEntry[]; recovering: boolean; snapshots: Snapshot[]; preview: FileResult[] }
 export type { BashResult } from '../core/shell-runner.js';
+export { SearchTools, type FindFilesOptions, type FindFilesResult, type SearchTextOptions, type SearchTextResult, type TextMatch } from './search-tools.js';
 const errorText = (error: unknown): string => error instanceof Error ? error.message : String(error);
 const hash = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
 const absent = (error: unknown): boolean => (error as NodeJS.ErrnoException).code === 'ENOENT';
@@ -34,16 +36,36 @@ export const FS_TOOL_SCHEMAS: ChatCompletionTool[] = [
   { type: 'function', function: { name: 'run_bash', description: 'Execute Bash in the workspace under host permissions and optional isolation. background:true returns a supervised task ID.', parameters: {
     type: 'object', properties: { command: { type: 'string' }, timeoutMs: { type: 'integer', minimum: 1, maximum: 300000 }, background: { type: 'boolean', description: 'Return a supervised task ID immediately; inspect or stop it through background_tasks_batch.' } }, required: ['command'], additionalProperties: false,
   } } },
+  { type: 'function', function: { name: 'find_files', description: 'Find file paths in the workspace matching a glob pattern (e.g. "**/*.json", "src/**/*.tsx"), respecting .gitignore.', parameters: {
+    type: 'object', properties: {
+      pattern: { type: 'string', description: 'Glob pattern to search for (e.g. "**/*.ts", "*config*"). Defaults to "**/*".' },
+      patterns: { type: 'array', items: { type: 'string' }, minItems: 1, maxItems: 10, description: 'Multiple glob patterns to search in batch.' },
+      directory: { type: 'string', description: 'Subdirectory to restrict search within (optional, defaults to workspace root).' },
+      limit: { type: 'integer', minimum: 1, maximum: 500, description: 'Maximum number of file paths to return (default: 100).' },
+    }, additionalProperties: false,
+  } } },
+  { type: 'function', function: { name: 'search_text', description: 'Search for text or regular expression across workspace files, respecting .gitignore. Returns matching file paths, 1-based line numbers, and matching text.', parameters: {
+    type: 'object', properties: {
+      query: { type: 'string', description: 'Search query string or regex pattern.' },
+      isRegex: { type: 'boolean', description: 'Whether query is a regular expression (default: false).' },
+      caseSensitive: { type: 'boolean', description: 'Whether search is case-sensitive (default: false).' },
+      filePattern: { type: 'string', description: 'Glob pattern to restrict search to specific files (e.g. "*.ts", "src/**").' },
+      directory: { type: 'string', description: 'Subdirectory to restrict search within (optional, defaults to workspace root).' },
+      limit: { type: 'integer', minimum: 1, maximum: 200, description: 'Maximum number of matches to return (default: 100).' },
+    }, required: ['query'], additionalProperties: false,
+  } } },
 ];
 
 export class FsTools {
   readonly background: BackgroundTasks;
+  private readonly search: SearchTools;
   private editQueue: Promise<unknown> = Promise.resolve();
   private readonly undo?: UndoStore;
   private undoOwner?: string;
   private scope: WorkspaceScope = 'workspace';
   constructor(private readonly workspace: string, private readonly bashPath?: string, private readonly options: FsToolsOptions = {}) {
     this.scope = options.scope ?? 'workspace';
+    this.search = new SearchTools(workspace);
     if (options.undoDirectory) this.undo = new UndoStore(workspace, options.undoDirectory);
     this.background = new BackgroundTasks(workspace, bashPath, options.shellInvocation, () => this.assertWritable('Shell execution'));
   }
@@ -496,6 +518,16 @@ export class FsTools {
       if (error instanceof ShellStartupError) return { ...error.result, error: error.result.error ?? error.message };
       return { stdout: '', stderr: '', exitCode: null, timedOut: false, truncated: false, error: errorText(error), aborted: signal?.aborted };
     }
+  }
+
+  async find_files(options?: FindFilesOptions): Promise<FindFilesResult> {
+    if (this.scope === 'none') throw new Error('Filesystem access is disabled (scope: none)');
+    return this.search.find_files(options);
+  }
+
+  async search_text(options: SearchTextOptions): Promise<SearchTextResult> {
+    if (this.scope === 'none') throw new Error('Filesystem access is disabled (scope: none)');
+    return this.search.search_text(options);
   }
 
   async close(): Promise<void> { await this.background.close(); if (process.platform === 'win32') await disposeWindowsShellJobs(); }
