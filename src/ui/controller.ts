@@ -177,7 +177,7 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
  subscribe=(listener:()=>void):(()=>void)=>{this.on('change',listener);return()=>{this.off('change',listener);};};
  private update(patch:Partial<UiState>):void{if(!this.disposed){this.state={...this.state,...patch};this.emit('change');}}
  private add(kind:HistoryEntry['kind'],text:string,tool?:ToolDisplay,fullDiff?:boolean):void{this.update({history:[...this.state.history,{id:this.nextId++,kind,text:safeText(text),tool,...(fullDiff?{fullDiff:true}:{})}]});}
- private flush(fallback=''):void{const text=this.state.streaming||fallback;if(text)this.add('assistant',text);this.update({streaming:''});}
+ private flush(fallback=''):void{const text=this.state.streaming||fallback;if(text)this.update({history:[...this.state.history,{id:this.nextId++,kind:'assistant',text:safeText(text)}],streaming:''});else this.update({streaming:''});}
  start():Promise<void>{return this.startPromise??=(async()=>{await this.action('Loading workspace',signal=>this.agent.initialize(signal));this.showRestored();})();}
  private showRestored():void{if(this.agent.messages.length){this.add('info',`Resumed session ${this.agent.sessionId??''}`);for(const m of this.agent.messages)if((m.role==='user'||m.role==='assistant')&&typeof m.content==='string')this.add(m.role,m.content);}}
  private async action(label:string,operation:(signal:AbortSignal)=>Promise<unknown>|unknown):Promise<void>{
