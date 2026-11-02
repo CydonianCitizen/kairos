@@ -8,7 +8,18 @@ import { Parser, Language, type Node } from 'web-tree-sitter';
 import { RepoGraph, type FileRecord, type ImportRecord, type SymbolRecord } from './repo-graph.js';
 
 const require = createRequire(import.meta.url);
-const languages: Record<string, string> = { '.ts': 'typescript', '.mts': 'typescript', '.cts': 'typescript', '.tsx': 'tsx', '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.py': 'python', '.rs': 'rust', '.go': 'go' };
+const languages: Record<string, string> = {
+  '.ts': 'typescript', '.mts': 'typescript', '.cts': 'typescript',
+  '.tsx': 'tsx',
+  '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+  '.py': 'python',
+  '.rs': 'rust',
+  '.go': 'go',
+  '.c': 'c', '.h': 'c',
+  '.cpp': 'cpp', '.hpp': 'cpp', '.cc': 'cpp', '.hh': 'cpp', '.cxx': 'cpp', '.hxx': 'cpp',
+  '.java': 'java',
+  '.cs': 'c_sharp',
+};
 const excluded = ['**/.git/**', '**/node_modules/**', '**/dist/**', '**/build/**', '**/coverage/**', '**/target/**', '**/.venv/**', '**/venv/**', '**/__pycache__/**'];
 let initialized: Promise<void> | undefined;
 const grammarCache = new Map<string, Promise<Language>>();
@@ -19,13 +30,46 @@ async function grammar(name: string): Promise<Language> {
   if (!value) { value = Language.load(require.resolve(`tree-sitter-wasms/out/tree-sitter-${name}.wasm`)); grammarCache.set(name, value); }
   return value;
 }
-const declarations = new Set(['function_declaration', 'generator_function_declaration', 'function_definition', 'function_item', 'method_definition', 'method_declaration', 'method_signature', 'function_signature_item', 'class_declaration', 'abstract_class_declaration', 'class_definition', 'interface_declaration', 'struct_item', 'enum_item', 'trait_item', 'type_alias_declaration', 'type_item', 'type_spec']);
-const callTypes = new Set(['call_expression', 'call', 'macro_invocation']);
-const importTypes = new Set(['import_statement', 'import_from_statement', 'export_statement', 'use_declaration', 'import_spec', 'mod_item']);
+const declarations = new Set([
+  'function_declaration', 'generator_function_declaration', 'function_definition',
+  'function_item', 'method_definition', 'method_declaration', 'method_signature',
+  'function_signature_item', 'class_declaration', 'abstract_class_declaration',
+  'class_definition', 'interface_declaration', 'struct_item', 'enum_item',
+  'trait_item', 'type_alias_declaration', 'type_item', 'type_spec',
+  'struct_specifier', 'class_specifier', 'enum_specifier', 'enum_declaration',
+  'record_declaration', 'constructor_declaration'
+]);
+const callTypes = new Set(['call_expression', 'call', 'macro_invocation', 'method_invocation']);
+const importTypes = new Set([
+  'import_statement', 'import_from_statement', 'export_statement',
+  'use_declaration', 'import_spec', 'mod_item',
+  'preproc_include', 'import_declaration', 'using_directive'
+]);
 const unquote = (text: string): string => text.replace(/^["'`]|["'`]$/g, '');
 
+function declaratorName(node: Node | null): string | undefined {
+  if (!node) return undefined;
+  if (['identifier', 'field_identifier', 'type_identifier', 'destructor_name'].includes(node.type)) return node.text;
+  if (node.type === 'scoped_identifier') {
+    const name = node.childForFieldName('name');
+    return name ? name.text : node.text;
+  }
+  const childDecl = node.childForFieldName('declarator');
+  if (childDecl) return declaratorName(childDecl);
+  for (const child of node.namedChildren.filter((c): c is Node => c !== null)) {
+    const found = declaratorName(child);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 function symbolName(node: Node): string | undefined {
-  if (declarations.has(node.type)) return node.childForFieldName('name')?.text;
+  if (declarations.has(node.type)) {
+    const directName = node.childForFieldName('name')?.text;
+    if (directName) return directName;
+    const declarator = node.childForFieldName('declarator');
+    if (declarator) return declaratorName(declarator);
+  }
   if (node.type === 'variable_declarator') {
     const value = node.childForFieldName('value');
     if (value && ['arrow_function', 'function_expression', 'generator_function'].includes(value.type)) return node.childForFieldName('name')?.text;
@@ -80,6 +124,34 @@ function importsFrom(node: Node, language: string): ImportRecord[] {
     if (match) return [{ module: match[1]!, bindings: [{ local: match[3] ?? match[2]!, imported: match[2]! }], line }];
     return [{ module: text, bindings: [], line }];
   }
+  if (['c', 'cpp'].includes(language) && node.type === 'preproc_include') {
+    const pathNode = node.childForFieldName('path');
+    if (!pathNode) return [];
+    const raw = pathNode.text.replace(/^[<"']|[>"']$/g, '');
+    const base = raw.split('/').at(-1)!.replace(/\.[^/.]+$/, '');
+    return [{ module: raw, bindings: [{ local: base, imported: '*' }], line }];
+  }
+  if (language === 'java' && node.type === 'import_declaration') {
+    const children = node.namedChildren.filter((c): c is Node => c !== null);
+    const scoped = children.find(c => c.type === 'scoped_identifier');
+    if (!scoped) return [];
+    const full = scoped.text;
+    const isAsterisk = children.some(c => c.type === 'asterisk');
+    if (isAsterisk) {
+      return [{ module: full, bindings: [{ local: full.split('.').at(-1)!, imported: '*' }], line }];
+    } else {
+      const lastDot = full.lastIndexOf('.');
+      const pkg = lastDot > 0 ? full.slice(0, lastDot) : full;
+      const name = lastDot > 0 ? full.slice(lastDot + 1) : full;
+      return [{ module: pkg, bindings: [{ local: name, imported: name }], line }];
+    }
+  }
+  if (language === 'c_sharp' && node.type === 'using_directive') {
+    const children = node.namedChildren.filter((c): c is Node => c !== null);
+    const nameNode = children.find(c => ['identifier', 'qualified_name'].includes(c.type));
+    if (!nameNode) return [];
+    return [{ module: nameNode.text, bindings: [{ local: nameNode.text.split('.').at(-1)!, imported: '*' }], line }];
+  }
   return [];
 }
 
@@ -94,7 +166,7 @@ function extract(root: Node, path: string, language: string): FileRecord {
     if (name) {
       const value = node.type === 'variable_declarator' ? node.childForFieldName('value') : node;
       const body = value?.childForFieldName('body');
-      const exported = node.parent?.type === 'export_statement' || node.parent?.parent?.type === 'export_statement' || node.text.startsWith('pub ') || (language === 'go' && /^[A-Z]/.test(name)) || (language === 'python' && !name.startsWith('_'));
+      const exported = node.parent?.type === 'export_statement' || node.parent?.parent?.type === 'export_statement' || node.text.startsWith('pub ') || (language === 'go' && /^[A-Z]/.test(name)) || (language === 'python' && !name.startsWith('_')) || (['c', 'cpp'].includes(language) && !node.text.startsWith('static ')) || (['java', 'c_sharp'].includes(language) && (node.text.startsWith('public ') || node.text.includes('public ')));
       const qualifiedName = [...scope, name].join('.');
       current = { id: `symbol:${path}:${node.startIndex}:${qualifiedName}`, path, name, qualifiedName, kind: node.type, startLine: node.startPosition.row + 1, endLine: node.endPosition.row + 1,
         source: node.text, signature: (body ? node.text.slice(0, body.startIndex - node.startIndex) : node.text).trim().replace(/\s+/g, ' '), exported, calls: [] };
@@ -110,7 +182,7 @@ function extract(root: Node, path: string, language: string): FileRecord {
       if (local) file.exports.push(alias ? `${alias}:${local}` : local);
     }
     if (current && callTypes.has(node.type)) {
-      const callee = node.childForFieldName('function') ?? node.childForFieldName('macro');
+      const callee = node.childForFieldName('function') ?? node.childForFieldName('macro') ?? node.childForFieldName('name');
       if (callee) current.calls.push({ name: callee.text, line: node.startPosition.row + 1 });
     }
     for (const child of [...node.namedChildren.filter((child): child is Node => child !== null)].reverse()) stack.push({ node: child, scope: childScope, owner: current });

@@ -18,7 +18,7 @@ export interface InspectedSymbol extends Omit<SymbolRecord, 'calls'> {
 interface NodeAttributes { kind: 'file' | 'symbol'; path: string; symbol?: SymbolRecord }
 interface EdgeAttributes { kind: 'contains' | 'imports' | 'calls' }
 const location = (s: SymbolRecord): SymbolLocation => ({ id: s.id, name: s.name, path: s.path, startLine: s.startLine });
-const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs', '.py', '.rs', '.go'];
+const extensions = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts', '.mjs', '.cjs', '.py', '.rs', '.go', '.c', '.h', '.cpp', '.hpp', '.cc', '.hh', '.cxx', '.hxx', '.java', '.cs'];
 
 /** A snapshot: rebuild and swap it after edits. No model or network access. */
 export class RepoGraph {
@@ -62,6 +62,22 @@ export class RepoGraph {
       if (!this.goModule || !module.startsWith(`${this.goModule}/`)) return [];
       const dir = module.slice(this.goModule.length + 1);
       return [...this.files.keys()].filter(path => posix.dirname(path) === dir && path.endsWith('.go'));
+    } else if (file.language === 'c' || file.language === 'cpp') {
+      const headerCandidates = [
+        posix.normalize(posix.join(base, module)),
+        posix.normalize(module),
+        posix.join('include', module),
+        posix.join('src', module)
+      ];
+      const match = headerCandidates.find(cand => this.files.has(cand));
+      return match ? [match] : [];
+    } else if (file.language === 'java') {
+      const javaStem = module.replaceAll('.', '/');
+      const directCandidate = `${javaStem}.java`;
+      const directMatch = [...this.files.keys()].find(p => p.endsWith(directCandidate));
+      if (directMatch) return [directMatch];
+      const packageMatches = [...this.files.keys()].filter(p => posix.dirname(p).endsWith(javaStem) && p.endsWith('.java'));
+      return packageMatches;
     } else if (module.startsWith('.')) stem = posix.normalize(posix.join(base, module));
     if (stem === undefined || stem.startsWith('../')) return [];
     const candidates = [stem];

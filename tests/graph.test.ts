@@ -155,3 +155,44 @@ it('reuses cached file records and diagnostics incrementally when previous graph
     await rm(otherRoot, { recursive: true, force: true });
   }
 });
+it('indexes C, C++ and Java with symbols, includes, packages and cross-file calls', async () => {
+  // C files
+  await file('include/math.h', 'struct Vector { int x; int y; };\nint add(int a, int b);');
+  await file('src/math.c', '#include "math.h"\nint add(int a, int b) { return a + b; }');
+
+  // C++ files
+  await file('include/service.hpp', 'class Service {\npublic:\n  void execute();\n};');
+  await file('src/service.cpp', '#include "service.hpp"\nvoid Service::execute() {}');
+
+  // Java files
+  await file('src/com/example/util/Calculator.java', 'package com.example.util;\npublic class Calculator {\n  public int multiply(int a, int b) { return a * b; }\n}');
+  await file('src/com/example/app/Main.java', 'package com.example.app;\nimport com.example.util.Calculator;\npublic class Main {\n  public void run() {\n    Calculator calc = new Calculator();\n    calc.multiply(2, 3);\n  }\n}');
+
+  const graph = await indexWorkspace(root);
+  expect(graph.stats.files).toBe(6);
+  expect(graph.diagnostics).toEqual([]);
+
+  const tools = new GraphTools(graph);
+
+  // Inspect C symbols and dependencies
+  const cInspect = tools.inspect_symbol_graph(['add', 'Vector']);
+  const addFn = cInspect.find(s => s.name === 'add')?.matches.find(m => m.path === 'src/math.c');
+  expect(addFn).toBeDefined();
+  expect(addFn?.signature).toContain('int add(int a, int b)');
+  expect(cInspect.find(s => s.name === 'Vector')?.matches).toHaveLength(1);
+
+  // Inspect C++ symbols
+  const cppInspect = tools.inspect_symbol_graph(['Service', 'execute']);
+  expect(cppInspect.find(s => s.name === 'Service')?.matches).toHaveLength(1);
+  const execFn = cppInspect.find(s => s.name === 'execute')?.matches.find(m => m.path === 'src/service.cpp');
+  expect(execFn).toBeDefined();
+
+  // Inspect Java symbols, packages and calls
+  const javaInspect = tools.inspect_symbol_graph(['multiply', 'Main']);
+  const multMethod = javaInspect.find(s => s.name === 'multiply')?.matches.find(m => m.path === 'src/com/example/util/Calculator.java');
+  expect(multMethod).toBeDefined();
+  expect(multMethod?.signature).toContain('public int multiply(int a, int b)');
+
+  const mainInspect = tools.inspect_symbol_graph(['run'])[0]!.matches[0]!;
+  expect(mainInspect.calls.some(c => c.name === 'multiply')).toBe(true);
+});
