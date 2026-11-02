@@ -109,3 +109,49 @@ it('leaves imported object methods unresolved and normalizes ./ directory filter
   expect(graph.inspect(['main'])[0]!.matches[0]!.calls[0]!.targets).toEqual([]);
   expect(graph.getRepoMap('./src/')).toBe(graph.getRepoMap('src'));
 });
+it('reuses cached file records and diagnostics incrementally when previous graph is provided', async () => {
+  await file('src/a.ts', 'export function alpha() { return 1; }');
+  await file('src/b.ts', 'export function beta() { return 2; }');
+  await file('src/broken.ts', 'function broken( {');
+
+  const initial = await indexWorkspace(root);
+  expect(initial.stats.files).toBe(3);
+  expect(initial.getFile('src/a.ts')?.mtimeMs).toBeTypeOf('number');
+  expect(initial.getFile('src/a.ts')?.size).toBeTypeOf('number');
+  expect(initial.diagnostics.some(d => d.path === 'src/broken.ts' && d.kind === 'parse')).toBe(true);
+
+  // 1. Unchanged workspace with previous: reuses exact FileRecord objects and diagnostics
+  const unchanged = await indexWorkspace(root, { previous: initial });
+  expect(unchanged.stats.files).toBe(3);
+  expect(unchanged.getFile('src/a.ts')).toBe(initial.getFile('src/a.ts'));
+  expect(unchanged.getFile('src/b.ts')).toBe(initial.getFile('src/b.ts'));
+  expect(unchanged.getFile('src/broken.ts')).toBe(initial.getFile('src/broken.ts'));
+  expect(unchanged.diagnostics.some(d => d.path === 'src/broken.ts' && d.kind === 'parse')).toBe(true);
+
+  // 2. Modify one file: only that file is re-parsed, others stay cached
+  await file('src/a.ts', 'export function alphaUpdated() { return 42; }');
+  const afterEdit = await indexWorkspace(root, { previous: unchanged });
+  expect(afterEdit.stats.files).toBe(3);
+  expect(afterEdit.getFile('src/a.ts')).not.toBe(unchanged.getFile('src/a.ts'));
+  expect(afterEdit.getFile('src/b.ts')).toBe(unchanged.getFile('src/b.ts'));
+  expect(afterEdit.getFile('src/broken.ts')).toBe(unchanged.getFile('src/broken.ts'));
+  expect(afterEdit.inspect(['alphaUpdated'])[0]!.matches).toHaveLength(1);
+  expect(afterEdit.inspect(['alpha'])[0]!.matches).toHaveLength(0);
+
+  // 3. Delete a file: removed from new graph while remaining cached files stay cached
+  await rm(join(root, 'src/broken.ts'));
+  const afterDelete = await indexWorkspace(root, { previous: afterEdit });
+  expect(afterDelete.stats.files).toBe(2);
+  expect(afterDelete.getFile('src/broken.ts')).toBeUndefined();
+  expect(afterDelete.getFile('src/b.ts')).toBe(afterEdit.getFile('src/b.ts'));
+  expect(afterDelete.diagnostics.some(d => d.path === 'src/broken.ts')).toBe(false);
+
+  // 4. Cross-workspace safety: previous with different root is ignored
+  const otherRoot = await mkdtemp(join(tmpdir(), 'nim-graph-other-'));
+  try {
+    const freshInOther = await indexWorkspace(root, { previous: new (initial.constructor as any)(otherRoot) });
+    expect(freshInOther.getFile('src/b.ts')).not.toBe(afterDelete.getFile('src/b.ts'));
+  } finally {
+    await rm(otherRoot, { recursive: true, force: true });
+  }
+});

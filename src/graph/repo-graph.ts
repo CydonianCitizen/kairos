@@ -8,7 +8,7 @@ export interface SymbolRecord {
   calls: CallReference[];
 }
 export interface ImportRecord { module: string; bindings: { local: string; imported: string }[]; line: number }
-export interface FileRecord { path: string; language: string; symbols: SymbolRecord[]; imports: ImportRecord[]; exports: string[] }
+export interface FileRecord { path: string; language: string; symbols: SymbolRecord[]; imports: ImportRecord[]; exports: string[]; mtimeMs?: number; size?: number }
 export interface Diagnostic { path: string; kind: 'parse' | 'read' | 'size'; message: string }
 export interface SymbolLocation { id: string; name: string; path: string; startLine: number }
 export interface InspectedSymbol extends Omit<SymbolRecord, 'calls'> {
@@ -33,6 +33,8 @@ export class RepoGraph {
   get stats(): { files: number; symbols: number; edges: number } {
     return { files: this.files.size, symbols: this.symbols.size, edges: this.graph.size };
   }
+  getFile(path: string): FileRecord | undefined { return this.files.get(path); }
+  getFileDiagnostics(path: string): Diagnostic[] { return this.diagnostics.filter(d => d.path === path); }
 
   addFile(file: FileRecord): void {
     if (this.files.has(file.path)) throw new Error(`Duplicate file: ${file.path}`);

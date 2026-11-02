@@ -144,6 +144,7 @@ export interface IndexOptions {
   maxFileBytes?: number;
   signal?: AbortSignal;
   onProgress?: (stats: { files: number; symbols: number }) => void;
+  previous?: RepoGraph;
 }
 export async function indexWorkspace(workspace: string, options: IndexOptions = {}): Promise<RepoGraph> {
   options.signal?.throwIfAborted();
@@ -170,22 +171,34 @@ export async function indexWorkspace(workspace: string, options: IndexOptions = 
   const graph = new RepoGraph(root, goModule);
   const paths = (await fg('**/*', globOptions)).filter(path => languages[extname(path)] && !ignored(path, scopes)).sort();
   const parsers = new Map<string, Parser>();
+  const previous = options.previous?.root === root ? options.previous : undefined;
   try {
     for (const path of paths) {
       options.signal?.throwIfAborted();
       const language = languages[extname(path)]!;
-      let parser = parsers.get(language);
-      if (!parser) { const loaded = await grammar(language); parser = new Parser(); parser.setLanguage(loaded); parsers.set(language, parser); }
       try {
         if (!await safe(path)) continue;
         const info = await lstat(join(root, path));
         if (info.size > maxBytes) { graph.diagnostics.push({ path, kind: 'size', message: `File exceeds ${maxBytes} bytes` }); continue; }
+        const cached = previous?.getFile(path);
+        if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) {
+          graph.addFile(cached);
+          for (const d of previous!.getFileDiagnostics(path)) graph.diagnostics.push(d);
+          options.onProgress?.(graph.stats);
+          await setImmediate();
+          continue;
+        }
+        let parser = parsers.get(language);
+        if (!parser) { const loaded = await grammar(language); parser = new Parser(); parser.setLanguage(loaded); parsers.set(language, parser); }
         const source = await readFile(join(root, path), 'utf8');
         const tree = parser.parse(source);
         if (!tree) throw new Error('Parser returned no tree');
         try {
           if (tree.rootNode.hasError) graph.diagnostics.push({ path, kind: 'parse', message: 'Syntax errors: extracted symbols may be incomplete' });
-          graph.addFile(extract(tree.rootNode, path, language));
+          const fileRecord = extract(tree.rootNode, path, language);
+          fileRecord.mtimeMs = info.mtimeMs;
+          fileRecord.size = info.size;
+          graph.addFile(fileRecord);
         } finally { tree.delete(); }
       } catch (error) { graph.diagnostics.push({ path, kind: 'read', message: error instanceof Error ? error.message : String(error) }); }
       options.onProgress?.(graph.stats);

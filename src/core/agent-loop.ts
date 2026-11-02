@@ -519,9 +519,10 @@ export class AgentLoop extends EventEmitter<AgentEvents> {
   }
 
   private async refresh(signal?: AbortSignal): Promise<void> {
+    const previous = this.graph;
     this.graph = undefined;
     if (this.scope === 'none') { this.emit('onGraphUpdate', { files: 0, symbols: 0, diagnostics: 0 }); return; }
-    this.graph = await indexWorkspace(this.options.workspace, { signal });
+    this.graph = await indexWorkspace(this.options.workspace, { signal, previous });
     this.emit('onGraphUpdate', { files: this.graph.stats.files, symbols: this.graph.stats.symbols, diagnostics: this.graph.diagnostics.length });
   }
 
