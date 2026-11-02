@@ -2,23 +2,24 @@
 
 **Right-Time Coding Agent · NVIDIA NIM**
 
-TUI inline con logo κ oro/bronzo, palette condivisa e banner fisso in alto con versione, modello e statistiche reali del Code Graph. Modello in verde NVIDIA, effort oro, grafo e cooldown restano aggiornati nella barra di stato unica sotto l'input. Nei terminali sotto le 80 colonne il banner usa un layout compatto; sotto le 16 righe si riduce al titolo.
+KAIROS is a terminal coding agent with an inline React Ink interface, a local AST Code Graph, and NVIDIA NIM integration. Requests share a paced queue with at least **1,600 ms between HTTP dispatches**, keeping a single coordinated workload below NVIDIA NIM's 40 RPM limit.
 
-**Kairon**, la mascotte ufficiale, passeggia sopra l'input con ciuffo oro, corpo bronzo e occhi ciano. Cammina più velocemente mentre l'agente lavora, si ferma durante il cooldown NIM e mostra occhi rossi durante i retry 429 o dopo un errore. Il fumetto riporta attività e countdown reali, senza richieste API aggiuntive. Si adatta alla larghezza del terminale e lascia spazio all'input quando l'altezza non basta o sono aperti i selettori modello/effort.
+The interface preserves native terminal scrollback and copy/paste. A gold/bronze banner introduces the session; the bottom dock shows input, model, reasoning effort, graph statistics, activity, queue, and cooldown. The banner becomes compact below 80 columns and reduces to a title in terminals shorter than 16 rows. Kairon's artwork appears in the wide banner; there is no roaming animation above the input.
 
-Fasi 1–4: client NVIDIA NIM, tool filesystem batch, motore Code Graph locale, ciclo agente e TUI inline con CLI.
+Features include:
 
-Fase 5: [audit e semplificazioni](docs/PHASE-5-AUDIT.md), con [confronto Pi/OpenCode e proposte successive](docs/PI-OPENCODE-COMPARISON.md).
+- **Local discovery:** AST indexing, symbol inspection, dependency candidates, and automatic repository context without exploratory model calls.
+- **Batch tools:** file reads, exact edits, and supervised shell commands with bounded output.
+- **Host-controlled permissions:** approval previews, granular allow/ask/deny rules, workspace scopes, and optional Linux shell isolation.
+- **Persistent workflows:** sessions, semantic/local compaction, edit undo, prompt rewind, and project memory.
+- **Interactive input:** multiline editing, file/symbol/skill completion, prompt search, steering, and an editable follow-up queue.
+- **Extensions and integrations:** skills, ESM plugins, MCP, plain output, JSONL, JSON-RPC, and a JavaScript SDK.
 
-Sono implementati anche **sessioni persistenti, compattazione semantica, plan mode, MCP, skill/plugin, input accodabili e JSON/RPC/SDK**. La [guida alle nuove funzionalità](docs/WORKFLOWS.md) contiene comandi, configurazione ed esempi completi.
+Detailed guides cover [agent workflows](docs/WORKFLOWS.md), [approvals, references, and queues](docs/HOST-WORKFLOWS.md), and [permissions, background tasks, memory, and rewind](docs/ADVANCED-WORKFLOWS.md). These linked guides are currently written in Italian.
 
-Sono disponibili anche **approvazioni con anteprima, undo persistente degli edit, riferimenti espliciti a file/simboli e coda visibile dei messaggi**. KAIROS ricorda l'ultimo modello scelto per le nuove sessioni, anche cambiando repository. Dettagli e comandi nella [guida ai flussi host](docs/HOST-WORKFLOWS.md).
+## Installation and verification
 
-La [ricerca su Claude Code](docs/CLAUDE-CODE-RESEARCH.md) raccoglie i meccanismi verificati nel codice pubblico, i comportamenti documentati e gli spunti applicabili a KAIROS.
-
-## Installazione e verifica
-
-Richiede Node.js 20.19+ oppure 22.12+ (incluso Node 24) e npm. Per `run_bash` serve Bash; su Windows viene cercato Git Bash. Per installazioni non standard impostare `BASH_PATH`.
+Requires **Node.js 20.19.x or later within Node 20, or Node.js 22.12+**, and npm. Node 24 is supported. `run_bash` requires Bash; Windows looks for Git Bash. Set `BASH_PATH` for a nonstandard installation. Windows process supervision also uses the .NET compiler available through Windows PowerShell.
 
 ```sh
 npm ci
@@ -27,25 +28,31 @@ npm test
 npm run build
 ```
 
-Per usare NIM da qualsiasi repository, creare una sola volta il file personale `~/.kairos/.env` (su Windows `%USERPROFILE%\.kairos\.env`) con:
+On machines where filesystem-heavy tests contend for resources, run the same complete suite with bounded parallelism:
 
-```dotenv
-NVIDIA_API_KEY=la_tua_chiave
+```sh
+npm test -- --maxWorkers=4
 ```
 
-La CLI cerca la chiave in questo ordine: **variabile d'ambiente → `.env` del workspace selezionato → `~/.kairos/.env`**. Il file personale evita di copiare la chiave in ogni progetto; per una chiave specifica del progetto, copiare `.env.example` in `.env` e valorizzarla. `.env` è escluso da Git. I test usano risposte HTTP simulate e non richiedono credenziali.
+To use NIM across repositories, create a personal `~/.kairos/.env` once. On Windows, use `%USERPROFILE%\.kairos\.env`:
 
-Modello, effort e timeout iniziali si configurano in `~/.kairos/config.json`; le istruzioni personali si scrivono in `~/.kairos/system-prompt.md`, senza ricompilare. La [guida alla configurazione](docs/CONFIGURATION.md) descrive precedenze, impostazioni del progetto e il comando esplicito `kairos --check-models` per verificare gli endpoint reali. Sono disponibili anche gli [esiti della verifica hosted](docs/NIM-VERIFICATION.md).
+```dotenv
+NVIDIA_API_KEY=your_nvidia_api_key
+```
 
-### Comando `kairos`
+The CLI resolves the key in this order: **existing environment variable → selected workspace's `.env` → `~/.kairos/.env`**. For project-specific credentials, copy `.env.example` to `.env` and set the key. `.env` is excluded from Git. Tests use simulated HTTP responses and need no NVIDIA credentials.
 
-Dalla radice del repository, dopo la build, installare il comando per lo sviluppo:
+Startup preferences live in `~/.kairos/config.json`; personal instructions go in `~/.kairos/system-prompt.md`, without rebuilding. The [configuration guide](docs/CONFIGURATION.md) explains precedence and `kairos --check-models` for explicit live endpoint checks. Historical results are in [NIM verification](docs/NIM-VERIFICATION.md).
+
+### The `kairos` command
+
+After building, link the command from the repository root for development:
 
 ```sh
 npm link
 ```
 
-Poi, da qualsiasi directory di progetto:
+Then run it from any project directory:
 
 ```sh
 kairos
@@ -53,20 +60,55 @@ kairos --mode plan
 kairos --version
 ```
 
-Su Windows, usare `npm.cmd link` se PowerShell intercetta gli argomenti di npm. La directory dei comandi globali npm deve essere nel `PATH` del terminale; `npm prefix -g` mostra il prefisso (su macOS/Linux i comandi sono nella sottodirectory `bin`).
+On Windows, use `npm.cmd link` if PowerShell interferes with npm invocation. The global npm command directory must be on `PATH`; `npm prefix -g` shows its prefix. On macOS/Linux, commands live in the prefix's `bin` subdirectory.
 
-Per distribuire una copia installabile invece di un collegamento al checkout:
+To install a packaged copy instead of linking the checkout:
 
 ```sh
 npm pack
 npm install --global ./kairos-0.0.1-alpha.tgz
 ```
 
-`npm pack` esegue automaticamente la build e include i moduli compilati, la documentazione e il modello `.env.example`. Dopo l'installazione il comando è sempre `kairos`; il pacchetto richiede Node.js. La chiave NVIDIA viene letta dall'ambiente, dal `.env` del workspace o dal file personale `~/.kairos/.env`, in quest'ordine. Questa procedura installa il pacchetto locale, senza pubblicarlo sul registro npm.
+`npm pack` builds automatically and includes compiled modules, documentation, and `.env.example`. The command remains `kairos`, with `nim-codex` as a compatibility alias. This installs a local package without publishing it to npm. Node.js and a configured NVIDIA key are still required.
 
-## Client
+## Configuration and workspace access
 
-Dopo la build, esempio da un modulo JavaScript nella radice del progetto:
+Example personal `~/.kairos/config.json`:
+
+```json
+{
+  "model": "mistralai/mistral-large-4-1t-a52b",
+  "effort": "auto",
+  "timeoutMs": 300000,
+  "permissions": { "edits": "ask", "shell": "ask", "external": "ask" },
+  "scope": "workspace",
+  "memory": true,
+  "sandbox": "off",
+  "plugins": [],
+  "mcpServers": {}
+}
+```
+
+Personal `plugins` and `mcpServers` sections coexist with ordinary settings. Relative personal plugin paths resolve from `~/.kairos`; MCP credentials reference environment variables. Trusted project preferences use `.kairos/config.json`; project extensions use `.nim/config.json`. Project settings and extensions require `--trust-workspace`.
+
+New-session settings resolve as **CLI overrides → trusted project settings → personal settings → bundled defaults**. Model selection also checks the last manually selected model between project and personal defaults. Resumed sessions retain their saved model/effort unless explicitly overridden. The SDK does not automatically load `.env` or preferences: call `loadSettings()` and supply the options when needed.
+
+`--scope` and the idle-only `/scope` command select native filesystem tool access:
+
+| Scope | Behavior |
+| --- | --- |
+| `none` | Disables native tools and new graph, reference, workspace-instruction, and project-memory context injection. Existing conversation history remains. |
+| `read-only` | Allows workspace reads and local graph/skill inspection; blocks edits, shell startup, file restores, and external effects. |
+| `workspace` | Default. Restricts native file reads and edits to the workspace. |
+| `full` | Allows native file access outside the workspace, while preserving edit permissions and undo journaling. |
+
+`AgentLoop.setScope()` also requires an idle agent. Prepared file operations recheck scope before applying changes; shell/external execution checks it before starting effects. Stopping already running background tasks remains available.
+
+Scopes and `allow/ask/deny` rules control tool invocation, not OS-level containment. Permitted shell commands and trusted plugins run with the process's privileges. `--sandbox required` adds Linux/WSL2 bubblewrap isolation with a read-only host root, writable workspace, private temporary directory, and isolated network/process namespaces. It fails rather than falling back to an unsandboxed command when unavailable. Native Windows and macOS have no bundled sandbox backend. See [advanced workflows](docs/ADVANCED-WORKFLOWS.md) for limits.
+
+## NIM client and rate limiting
+
+After building, run this example from a JavaScript module in the project root:
 
 ```js
 import 'dotenv/config';
@@ -78,44 +120,76 @@ client.on('onRateLimitWait', ({ remainingMs, reason }) => {
   console.log(reason, remainingMs);
 });
 const result = await client.complete({
-  messages: [{ role: 'user', content: 'Descrivi i file che ti servono per esplorare il progetto.' }],
+  messages: [{ role: 'user', content: 'Describe the files you need to explore this project.' }],
   tools: FS_TOOL_SCHEMAS,
 });
 if (result.ok) console.log(result.value.choices);
 else console.error(result.error);
 ```
 
-`complete()` restituisce `NimResult<ChatCompletion>`. `stream()` restituisce tutti i chunk, inclusi i delta delle chiamate tool, ed emette `onTokenStream` per testo e rifiuti del modello. Entrambi accettano un `AbortSignal` come secondo argomento. Gli errori HTTP e l'esaurimento dei retry producono `{ ok: false, error, status }`; una chiave mancante produce un errore di configurazione nel costruttore. La libreria non carica automaticamente `.env`: lo fa esplicitamente il chiamante, come nell'esempio. La CLI carica il `.env` del workspace selezionato e usa `~/.kairos/.env` per le variabili ancora mancanti, conservando quelle già presenti nell'ambiente.
+`complete()` returns `NimResult<ChatCompletion>`. `stream()` returns all chunks, including tool-call deltas, and emits `onTokenStream` for text and refusals. Reasoning uses a separate `onReasoningStream` event. Both methods accept an `AbortSignal` as their second argument. HTTP errors and exhausted retries return `{ ok: false, error, status }`; a missing key throws a constructor configuration error.
 
-Tutte le istanze condividono una coda FIFO nello stesso processo, con una sola richiesta attiva e almeno 1600 ms tra gli avvii. Processi Kairos sullo stesso computer coordinano la stessa chiave tramite file locali in `~/.kairos/rate-limits`, senza salvare la chiave in quei file. Lo slot resta occupato durante lo streaming e il backoff. I 429 consentono tre retry dopo 5, 10 e 20 secondi, rispettando anche `Retry-After` se maggiore. Uno stream già iniziato non viene ripetuto. Altre applicazioni, computer o directory di coordinamento diverse non condividono questo limite; l'ordine tra processi dipende dalla contesa del lock, mentre la FIFO resta garantita nel singolo processo.
+The library leaves environment loading to its caller. Here, `dotenv/config` loads the current directory's `.env`, not the CLI's workspace/personal lookup. The CLI loads those files explicitly while preserving existing environment variables.
 
-I retry automatici dell'SDK sono disabilitati con `maxRetries: 0`, come previsto dalla [documentazione OpenAI SDK](https://github.com/openai/openai-node/blob/main/docs/configuration.md), per evitare richieste fuori dal limiter.
+All client instances share one FIFO queue per process, with one active request and at least 1,600 ms between actual HTTP dispatches. KAIROS processes on the same computer coordinate the same key through local files in `~/.kairos/rate-limits`, without storing the key. The slot stays occupied during streaming and backoff.
 
-Il [catalogo dei modelli](docs/MODELS.md) si aggiorna all'avvio della TUI con un controllo NVIDIA ogni **24 ore**, usando cache locale e fallback offline. I profili inclusi, verificati sulle pagine NVIDIA il **31 ottobre 2026**, usano **Mistral Large 4** come predefinito e comprendono DeepSeek V4.1 Flash, MiniMax M3.1 Flash, GLM 5.3 Flash e Nemotron 3.5 Bolt. Gli altri modelli scaricati sono candidati, senza supporto ai tool certificato dall'endpoint. `/model` apre un selettore navigabile con frecce e Invio, con il modello attivo evidenziato ed Esc per annullare; `/model provider/model` e `--model` accettano anche ID esterni alla selezione. Le sessioni riprese conservano il modello precedente, salvo selezione esplicita. `parallel_tool_calls` viene inviato solo con tool e supporto documentato (Nemotron Bolt), oppure tramite override nel costruttore del client.
+HTTP 429 responses allow three retries after 5, 10, and 20 seconds, honoring a longer `Retry-After`. Streams that have already received data are not replayed. SDK retries are disabled with `maxRetries: 0`, keeping dispatches inside the limiter.
 
-## Tool batch
+FIFO order is guaranteed within a process; cross-process ordering follows lock contention. Other applications, computers, or coordination directories do not share this limit. Coordination requires a local filesystem with hard-link support; an unavailable or corrupt coordinator blocks dispatch instead of bypassing pacing.
+
+### Models and reasoning effort
+
+The [model catalog](docs/MODELS.md) checks NVIDIA metadata on TUI startup at most once every **24 hours**, with a local cache and offline fallback. Bundled profiles were checked against NVIDIA's public pages on **October 31, 2026**:
+
+- `mistralai/mistral-large-4-1t-a52b` — default.
+- `deepseek-ai/deepseek-v4.1-flash`.
+- `minimaxai/minimax-m3.1-flash`.
+- `z-ai/glm-5.3-flash`.
+- `nvidia/nemotron-3.5-bolt-e4b`.
+
+Downloaded models are candidates, not certified tool-capable endpoints. Custom `provider/model` IDs work through `/model provider/model` and `--model`. `parallel_tool_calls` is sent only with tools and documented profile support, currently Nemotron Bolt, or an explicit client-constructor support override.
+
+`/model` opens a searchable picker: type to filter names, ↑/↓ selects, Enter confirms, and Esc cancels. The active custom model stays available. `/effort` exposes configured levels only: Mistral Large 4 has `auto`, `none`, and `high`; MiniMax M3.1 Flash has `auto`, `low`, `medium`, `high`, `xhigh`, and `max`. Other bundled models use `auto` without unverified effort parameters. Switching models resets unsupported effort to `auto`. See [reasoning effort](docs/MODELS.md#reasoning-effort).
+
+New sessions remember the last manually selected model across repositories. Resumed sessions preserve their previous model unless explicitly overridden. To probe hosted capabilities:
+
+```sh
+kairos --check-models
+kairos --check-models --model mistralai/mistral-large-4-1t-a52b --json
+```
+
+These checks make real, paced requests and save a report. They never run as part of the test suite.
+
+## Batch tools
 
 ```js
 import { FsTools } from './dist/tools/fs-tools.js';
 
 const tools = new FsTools(process.cwd());
-const files = await tools.read_files_batch(['package.json', 'tsconfig.json']);
-const edits = await tools.apply_edits_batch([
-  { path: 'example.txt', old_text: '', new_text: 'Nuovo file\n' },
-]);
-const command = await tools.run_bash('git status --short');
+try {
+  const files = await tools.read_files_batch(['package.json', 'tsconfig.json']);
+  const edits = await tools.apply_edits_batch([
+    { path: 'example.txt', old_text: '', new_text: 'New file\n' },
+  ]);
+  const command = await tools.run_bash('git status --short');
+  console.log({ files, edits, command });
+} finally {
+  await tools.close();
+}
 ```
 
-- Batch da 1 a 100 elementi, risultati indipendenti per ogni elemento.
-- Percorsi relativi al workspace; traversal e symlink verso l'esterno rifiutati. Letture limitate a file regolari di massimo 1 MiB.
-- Sostituzioni esatte e univoche, in ordine. `old_text: ''` crea esclusivamente un nuovo file; la directory deve esistere. Le modifiche batch sono serializzate per istanza e non hanno rollback globale.
-- Le scritture vengono preparate in un file temporaneo adiacente e pubblicate tramite rename; i nuovi file usano un hard link esclusivo, senza sovrascrivere un file apparso nel frattempo. Gli errori di scrittura prima della pubblicazione conservano l'originale. Il filesystem deve supportare gli hard link per la creazione; non sono garantiti rollback globale o durabilità a un'interruzione di alimentazione.
-- `AgentLoop` emette `onToolStart` e `onToolEnd`; i tool diretti restituiscono soltanto i risultati.
-- `run_bash` parte nel workspace, usa un timeout predefinito di 30 secondi (configurabile da 1 ms a 300 s), termina l'albero dei processi al timeout e limita ciascuno di stdout/stderr a 15.000 caratteri. Il risultato include exit code, timeout e troncamento. Esegue comandi arbitrari: non è una sandbox.
+- Batches contain 1–100 items with independent per-item results.
+- Default paths are workspace-relative. Traversal and external symlinks are rejected. Reads accept regular files up to 1 MiB; `full` explicitly broadens path access.
+- Replacements must match exactly once and execute in order. `old_text: ''` creates a new file only; its parent directory must exist. Edits are serialized per instance, without batch-wide rollback.
+- Writes stage an adjacent temporary file and publish by rename. New files use an exclusive hard link, preserving a target created by another writer. Failures before publication preserve the original. Creation requires hard-link support; power-loss durability and global rollback are not guaranteed.
+- `AgentLoop` emits `onToolStart` and `onToolEnd`; direct tools return results without agent events.
+- `run_bash` starts in the workspace, defaults to 30 seconds, accepts timeouts from 1 ms to 300 seconds, and stops the supervised process tree on timeout. Each of stdout/stderr is capped at 15,000 characters. Results include exit code, timeout, cancellation, and truncation information.
 
-Il dispatcher valida gli argomenti e la CLI chiede approvazione prima di edit, shell e chiamate esterne. Le regole `allow/ask/deny` e `--permissions` controllano gli effetti; in modalità non interattiva `ask` si ferma con un errore esplicito. Le protezioni dei percorsi presuppongono un workspace locale fidato, senza modifiche concorrenti ostili dei symlink. I tool eseguono comunque con i privilegi del processo: non sono una sandbox OS.
+The dispatcher validates arguments. The CLI requests approval before edits, shell commands, and external calls; noninteractive `ask` returns an explicit approval-required error. The SDK defaults to `allow` unless the host supplies a policy. Path protection assumes a trusted local workspace without hostile concurrent symlink changes.
 
-## Code Graph locale (Fase 2)
+For longer work, `run_bash` accepts `background: true` and returns a supervised task ID. `background_tasks_batch` or `/tasks` inspects status/logs or stops tasks. Up to eight tasks can run concurrently, with the 50 most recent completed results retained. Turn cancellation after startup does not stop a task already handed to the supervisor; use explicit stop, timeout, or process closure. Session switching and file rewind require running tasks to stop first.
+
+## Local Code Graph
 
 ```js
 import { indexWorkspace } from './dist/graph/indexer.js';
@@ -132,25 +206,26 @@ console.log(tools.inspect_symbol_graph(['NimClient', 'NimClient.complete']));
 console.log(graph.search('rate limit client', 10));
 ```
 
-L'indicizzazione non usa il client NIM e non richiede una chiave API. I parser `web-tree-sitter` e le grammatiche WASM sono caricati dalle dipendenze locali; non servono compilatori nativi. Sono supportati TS/TSX, JS/JSX, Python, Rust e Go, incluse le estensioni ESM/CJS.
+Indexing uses no NIM client or API key. `web-tree-sitter` loads local WASM grammars without a native C++ build. Supported languages are TS/TSX, JS/JSX, Python, Rust, and Go, including ESM/CJS extensions.
 
-Il grafo diretto Graphology contiene file, simboli e archi `contains`, `imports`, `calls`. Conserva sorgente esatto del nodo AST, firma, nome qualificato e righe a base 1. I tool espongono schemi JSON in `GRAPH_TOOL_SCHEMAS`, collegati al dispatcher della Fase 3. Gli eventi di esecuzione sono emessi dal ciclo agente.
+The directed Graphology graph stores files, symbols, and `contains`, `imports`, and `calls` edges. Symbols retain exact AST source, signatures, qualified names, and one-based line numbers. `GRAPH_TOOL_SCHEMAS` connects graph tools to the agent dispatcher.
 
-`inspect_symbol_graph(symbol_names)` accetta da 1 a 100 nomi. Per i duplicati restituisce tutti i risultati; si può restringere con `percorso:Nome.qualificato`. Le chiamate includono i possibili destinatari locali; `targets: []` indica che la chiamata non è risolta. `dependents` indica i file che importano direttamente il file del simbolo, non una prova che usino specificamente quel simbolo.
+`inspect_symbol_graph(symbol_names)` accepts 1–100 names. It returns every matching duplicate; narrow a query with `path:Qualified.name`. Calls include candidate local targets; `targets: []` means unresolved. `dependents` lists files importing the symbol's file, not proof that they use that individual symbol.
 
-`get_repo_map(directory?)` restituisce una mappa di massimo 12.000 caratteri, con indicazione del troncamento. Il filtro directory è relativo al workspace. `graph.search(query, limit)` restituisce posizioni ordinate per corrispondenza dei termini ed è usato per l'iniezione automatica del contesto nel ciclo agente.
+`get_repo_map(directory?)` returns a map capped at 12,000 characters and marks truncation. Its directory filter is workspace-relative. `graph.search(query, limit)` ranks matching symbol locations for automatic turn context.
 
-La risoluzione copre import relativi JS/TS (inclusa la convenzione NodeNext `.js` → `.ts`), import Python locali, percorsi Rust semplici `crate`/`self`/`super`, e package Go interni al modulo dichiarato in `go.mod`. Non è un type checker: alias `tsconfig`, re-export concatenati, import dinamici, CommonJS `require`, Rust `use` raggruppati/glob e dispatch dinamico restano non risolti. I possibili destinatari locali non equivalgono a un call graph certificato dal compilatore.
+Resolution covers relative JS/TS imports, including NodeNext `.js` → `.ts`, local Python imports, simple Rust `crate`/`self`/`super` paths, and internal Go packages under the module declared in `go.mod`. It is not a type checker: `tsconfig` aliases, chained re-exports, dynamic imports, CommonJS `require`, grouped/glob Rust `use`, and dynamic dispatch remain unresolved. Candidates are not a compiler-certified call graph.
 
-Sono rispettati `.gitignore` alla radice e nelle sottocartelle, incluse le negazioni consentite da Git. Sono esclusi symlink, `.git`, `node_modules`, build, ambienti virtuali e cache comuni. Il limite per file è 1 MiB, configurabile con `maxFileBytes`. Errori di lettura, file troppo grandi e sintassi incompleta sono riportati in `diagnostics`; gli errori di caricamento delle grammatiche interrompono invece l'indicizzazione.
+Root and nested `.gitignore` files are respected, including Git-compatible negation rules. Symlinks, `.git`, `node_modules`, build directories, virtual environments, and common caches are excluded. The default 1 MiB file limit is configurable through `maxFileBytes`. Read failures, oversized files, and incomplete syntax appear in `diagnostics`; grammar-loading failures stop indexing.
 
-Ogni esecuzione produce uno snapshot nuovo e indipendente. Dopo modifiche ai file, richiamare `indexWorkspace` e sostituire il grafo/tools precedenti: non è presente un watcher. I parser e gli alberi AST sono liberati dopo l'uso; `AbortSignal` permette di interrompere tra i file. I test coprono tutti i linguaggi con parser reali, import, alias, Unicode, ignore annidati, cancellazione, symlink e reindicizzazione.
+Each run produces an independent snapshot. After edits, call `indexWorkspace` again and replace previous graph/tools; there is no watcher. Parsers and AST trees are released after use. `AbortSignal` stops indexing between files. Tests use real parsers across supported languages and cover imports, aliases, Unicode, nested ignore rules, cancellation, symlinks, and reindexing.
 
-## Ciclo agente (Fase 3)
+## Agent loop
 
-Con `NVIDIA_API_KEY` configurata e dopo `npm run build`, salvare questo esempio come modulo `.mjs` nella radice del progetto:
+After configuring `NVIDIA_API_KEY` and building, save this as an `.mjs` module in the project root:
 
 ```js
+import 'dotenv/config';
 import { AgentLoop } from './dist/core/agent-loop.js';
 
 const agent = new AgentLoop({
@@ -167,32 +242,38 @@ agent.on('onRateLimitWait', ({ reason, remainingMs }) => console.log('\nWait:', 
 agent.on('onCompaction', ({ removedMessages }) => console.log('\nCompacted:', removedMessages));
 
 const controller = new AbortController();
-// Chiamare controller.abort() per interrompere il turno.
-const result = await agent.run('Spiega il funzionamento di NimClient', {
-  signal: controller.signal,
-});
-console.log('\n', result.status, result.error ?? '');
+try {
+  // Call controller.abort() to interrupt the turn.
+  const result = await agent.run('Explain how NimClient works', {
+    signal: controller.signal,
+  });
+  console.log('\n', result.status, result.error ?? '');
+} finally {
+  await agent.close();
+}
 ```
 
-Il prompt in `src/core/system-prompt.ts` guida l'uso del grafo, dei tool batch e delle verifiche. Viene inviato a NIM come messaggio con ruolo `system` a ogni iterazione. Per aggiungere istruzioni senza ricompilare, usare `~/.kairos/system-prompt.md`, `systemPromptFile` nella configurazione oppure `--system-prompt FILE`. Per personalizzare un singolo progetto, scrivere le istruzioni in `AGENTS.md` e avviare `kairos --trust-workspace`: sono istruzioni aggiuntive subordinate al prompt di sistema. Il prompt base resta modificabile nel sorgente con una successiva build. Contenuti del repository, risultati dei tool e frammenti di cronologia sono trattati come dati. `--trust-workspace` autorizza anche skill, configurazione delle estensioni e preferenze `.kairos/config.json` del progetto.
+The prompt in `src/core/system-prompt.ts` guides graph use, batching, and verification. Every model iteration receives it as a `system` message. Add personal instructions through `~/.kairos/system-prompt.md`, `systemPromptFile`, or `--system-prompt FILE`. Trusted `AGENTS.md` files supply subordinate project instructions when workspace scope permits. `--trust-workspace` also enables project skills, extension configuration, and `.kairos/config.json` preferences. Repository source, tool output, and compacted history are untrusted data.
 
-`AgentLoop.run()` indicizza il workspace prima del turno, cerca i simboli rilevanti per il prompt e aggiunge firme, percorsi e righe alle richieste NIM. La mappa viene rigenerata per ogni richiesta senza accumularne copie nella cronologia. Dopo un batch di modifiche riuscito, anche solo parzialmente, o dopo un comando shell, il grafo viene ricostruito prima del tool successivo. Discovery e compattazione locale non richiedono API; la compattazione semantica usa il client NIM e lo stesso limiter.
+When scope permits, `AgentLoop.run()` indexes before each turn, finds relevant symbols, and injects signatures, paths, and lines. The map is regenerated per request instead of accumulating in history. A successful or partially successful edit batch, or a shell command, triggers reindexing before the next tool. Discovery and local compaction make no API calls; semantic compaction uses NIM through the same limiter.
 
-Lo streaming usa esclusivamente `NimClient`, quindi tutte le iterazioni rispettano il limiter e i retry esistenti. Gli argomenti delle tool call vengono ricomposti per indice dai chunk SSE. Stream incompleti, troncati o con ID duplicati vengono rifiutati prima di eseguire tool. Il dispatcher valida JSON, nomi, tipi, limiti batch e campi aggiuntivi; gli errori dei singoli tool sono restituiti al modello con il relativo `tool_call_id`.
+Streaming uses `NimClient` exclusively. Tool arguments are assembled by index from SSE chunks. Incomplete/truncated streams and duplicate IDs are rejected before model-proposed effects. The dispatcher validates JSON, names, types, batch bounds, and unexpected fields; errors return with the matching `tool_call_id`. The UI tolerates malformed previews instead of assuming model JSON already matches its schema.
 
-Le chiamate multiple sono eseguite in ordine, preservando dipendenze come modifica → ispezione. `onToolStart` espone ID, nome e argomenti JSON; `onToolEnd` espone ID, nome e risultato completo, incluso `mutated`. I risultati inviati al modello sono limitati a 12.000 caratteri (o un terzo del budget configurato, se inferiore), con un involucro JSON valido che segnala il troncamento.
+Multiple tool calls execute in order, preserving dependencies such as edit followed by inspection. `onToolStart` includes ID, name, and JSON arguments; `onToolEnd` includes ID, name, and the full result, including `mutated`. Model-facing results are capped at 12,000 characters or one-third of the configured budget, whichever is smaller, inside a valid JSON truncation wrapper.
 
-La stessa istanza conserva la conversazione tra più `run()`. `agent.messages` restituisce una copia della cronologia e `agent.clear()` la azzera quando nessun turno è attivo. I turni concorrenti sulla stessa istanza restituiscono `busy`. Ogni istanza deve possedere il proprio client NIM per evitare che eventi di sessioni indipendenti vengano mescolati; il limiter NIM resta condiviso nel processo.
+One instance retains conversation across `run()` calls. `agent.messages` returns a copy; `agent.clear()` resets context while idle. Concurrent main turns on one instance return `busy`. Independent agent instances must own separate clients so their events do not mix; the limiter remains process-wide.
 
-La compattazione conserva il prompt corrente e gruppi completi di messaggi/tool. La strategia locale mantiene fino a 2.400 caratteri di estratti; quella semantica genera un riassunto NIM e ripiega sul metodo locale in caso di errore. La CLI usa la strategia semantica per default, configurabile con `--compaction local`. Il budget di 64.000 caratteri si applica a messaggi e schemi tool: non è un conteggio esatto dei token. Se il prompt corrente non entra nel budget, il ciclo restituisce `context_limit`.
+Compaction preserves the current prompt and complete assistant/tool groups. Local compaction keeps up to 2,400 characters of excerpts; semantic compaction generates a NIM summary and falls back locally on failure. The CLI defaults to semantic compaction; `--compaction local` avoids that extra request. The default 64,000-character budget includes messages and tool schemas, not an exact token count. Requests that cannot fit return `context_limit`.
 
-Il risultato contiene `status`, `text`, `iterations` ed eventualmente `error`. Gli stati sono `completed`, `cancelled`, `iteration_limit`, `context_limit`, `error` e `busy`. Il limite predefinito è 12 iterazioni logiche (i retry HTTP del client non contano come nuove iterazioni). Gli errori NIM, compresi i 429 dopo l'esaurimento dei retry, fermano il turno senza un'eccezione non gestita.
+Results include `status`, `text`, `iterations`, and optional `error`. Statuses are `completed`, `cancelled`, `iteration_limit`, `context_limit`, `error`, and `busy`. The default maximum is 12 logical iterations; HTTP retries do not count toward it. NIM errors, including exhausted 429 retries, end the turn without an unhandled exception.
 
-La cancellazione interrompe richieste NIM, indicizzazione tra file e processi shell; impedisce l'avvio dei tool/modifiche successivi. Le operazioni già completate non vengono annullate. Anche in caso di cancellazione la cronologia mantiene una risposta per ogni tool call, marcando quelle non eseguite. Il turno successivo ricostruisce l'indice prima di ripartire. Una scrittura filesystem già in corso può completarsi prima che la cancellazione venga osservata.
+Cancellation interrupts NIM requests, indexing between files, and foreground shell work, and prevents subsequent tools/edits from starting. Completed effects are not rolled back; an in-flight filesystem write may finish before cancellation is observed. History keeps a result for each tool call, marking interrupted or unexecuted work. The next turn rebuilds the graph.
 
-I test della Fase 3 coprono il percorso SDK SSE → tool → SDK, pacing reale, ricostruzione degli argomenti frammentati, aggiornamento del grafo, errori di validazione, limiti, compattazione e cancellazione. Il trasporto HTTP è simulato: nessuna chiamata a NVIDIA è effettuata dalla suite.
+Tests cover SDK SSE → tool → SDK flows, pacing, fragmented arguments, graph refreshes, validation failures, limits, compaction, and cancellation without real NVIDIA calls.
 
-## TUI inline e CLI (Fase 4)
+<a id="tui-inline-e-cli-fase-4"></a>
+
+## Inline TUI and CLI
 
 ```sh
 npm ci
@@ -200,77 +281,105 @@ npm run build
 npm start
 ```
 
-Configurare `NVIDIA_API_KEY` nel file personale `~/.kairos/.env`, nell'ambiente oppure nel `.env` del workspace. Per un progetto diverso:
+Configure `NVIDIA_API_KEY` in the environment, workspace `.env`, or personal `~/.kairos/.env`. To select another project:
 
 ```sh
-node dist/cli.js --cwd /percorso/progetto --model mistralai/mistral-large-4-1t-a52b
+node dist/cli.js --cwd /path/to/project --model mistralai/mistral-large-4-1t-a52b
 ```
 
-`node dist/cli.js --help` e `node dist/cli.js --version` non richiedono credenziali. Il campo `bin` espone `kairos` dopo un eventuale `npm link` locale, mantenendo `nim-codex` come alias. Le sessioni restano in `~/.nim-codex/sessions` e la configurazione del workspace in `.nim/`, per continuare a usare i dati esistenti. Senza TTY usare `node dist/cli.js --prompt "Spiega NimClient"`: esegue un turno con output testuale, senza Ink. `--max-iterations` e `--max-context-chars` configurano i limiti del ciclo. Il flag `--scope <none|read-only|workspace|full>` vincola le autorizzazioni: `none` blocca ogni operazione filesystem/shell, `read-only` consente la sola lettura nel workspace, `workspace` (predefinito) consente lettura e scrittura confinate al progetto, `full` autorizza l'accesso completo al dispositivo.
+`--help`, `--version`, and `--list-sessions` need no API key. Existing session storage remains at `~/.nim-codex/sessions`; project extension configuration stays in `.nim/` for compatibility. Without a TTY, use `node dist/cli.js --prompt "Explain NimClient"` for one plain-output turn. `--max-iterations` and `--max-context-chars` set loop limits.
 
-La TUI usa React 18, Ink 5 e `ink-text-input`. I turni completati, i log dei tool e i diff vengono stampati con `<Static>`, conservando lo scrollback nativo. L'area visibile mantiene il banner in alto e una finestra sugli ultimi messaggi sopra il prompt, ancorato in basso con separatori orizzontali e prefisso `❯`. L'ultima riga raccoglie modello in verde NVIDIA, effort oro, stato NIM/attività, modalità, `AST file/simboli !avvisi`, coda `Q` e ID breve della sessione. Nei terminali stretti i dettagli finali vengono abbreviati o nascosti per preservare modello ed effort. Kairon resta sopra l'input quando c'è spazio. Il dock si adatta ad altezza, larghezza e menu aperti senza attivare l'alternate screen buffer.
+The TUI uses React 18, Ink 5, and `ink-text-input` in searchable pickers. The main prompt has a multiline editor. Completed turns and tool logs flush through `<Static>` into native scrollback. Compact action logs and folded reasoning keep the transcript readable; `/diff` prints retained edit diffs in full. The live dock shows model in NVIDIA green, effort in gold, activity/cooldown, mode, `AST files/symbols !warnings`, queue count, and a short session ID. Narrow terminals abbreviate trailing details. No alternate screen buffer is used.
 
-| Comando | Comportamento |
+| Command | Behavior |
 | --- | --- |
-| `/model` | Apre il selettore: frecce ↑/↓, Invio per confermare, Esc per annullare |
-| `/effort [livello]` | Apre il selettore effort o imposta direttamente un livello supportato |
-| `/model provider/model` | Cambia modello conservando la conversazione |
-| `/graph [directory]` | Ricostruisce il grafo e stampa la mappa locale |
-| `/context` | Mostra riferimenti espliciti, righe e budget usato |
-| `/undo` | Anteprima e ripristino dell'ultimo batch edit registrato |
-| `/rewind [ID ambito]` | Selettore dei prompt e ripristino di conversazione, file o entrambi |
-| `/tasks [start/logs/stop]` | Gestisce comandi shell supervisionati in background |
-| `/memory [add/update/remove/clear]` | Gestisce note durevoli del progetto |
-| `/clear` | Azzera il contesto della conversazione, conservando lo scrollback |
-| `/compact` | Riassume la cronologia tramite NIM con fallback locale |
-| `/compact local` | Compatta senza chiamate al modello |
-| `/plan`, `/build` | Passa tra pianificazione e modifica |
-| `/resume [ID]` | Apre il selettore delle sessioni oppure riprende direttamente un ID |
-| `/rename NOME` | Rinomina la sessione corrente e salva il nome |
-| `/branch [--model ID] [NOME]` | Copia la conversazione e passa alla nuova sessione |
-| `/btw [--model ID] DOMANDA` | Risposta separata dal contesto corrente, anche durante il lavoro; senza domanda riapre l'ultima |
-| `/sessions`, `/new` | Elenca le sessioni o ne crea una nuova |
-| `/skills`, `/skill NAME`, `/extensions`, `/mcp` | Ispeziona e usa le estensioni |
-| `/steer TEXT`, `/queue TEXT` | Guida il turno attivo o accoda un follow-up |
-| `/thinking [on\|off]` | Mostra o nasconde lo streaming CoT (Chain of Thought / reasoning) |
-| `/scope [livello]` | Imposta l'ambito di accesso ai file (`none`, `read-only`, `workspace`, `full`) |
-| `/queue`, `/queue remove ID`, `/queue clear` | Elenca o rimuove messaggi in attesa senza fermare il turno corrente |
-| `/queue edit ID TESTO` | Modifica un messaggio ancora in coda mantenendone ID e posizione |
-| `/help` | Mostra comandi e scorciatoie |
-| `/exit` | Esce quando nessun turno è attivo |
+| `/model` | Searchable model picker; ↑/↓ selects, Enter confirms, Esc cancels |
+| `/model provider/model` | Switch models while preserving conversation |
+| `/effort [level]` | Open the effort picker or set a supported level |
+| `/mode plan`, `/plan`, `/build` | Switch planning/building while idle |
+| `/graph [directory]` | Rebuild and display the graph map when scope permits |
+| `/context` | Show explicit references, line ranges, and their budget |
+| `/undo` | Preview and undo the last journaled edit batch |
+| `/diff` | Print retained diffs without the compact preview's line limit |
+| `/rewind [ID scope]` | Restore conversation, files, or both from a prompt checkpoint |
+| `/tasks [start/logs/stop]` | Manage supervised background shell tasks |
+| `/memory [add/update/remove/clear]` | Manage durable project notes |
+| `/clear` | Clear conversation context, preserving scrollback |
+| `/compact` | Summarize history through NIM with local fallback |
+| `/compact local` | Compact without a model request |
+| `/resume [ID]` | Search project sessions or resume an ID |
+| `/rename NAME` | Persist a name for the current session |
+| `/branch [--model ID] [NAME]` | Copy the conversation and switch to the new session |
+| `/btw [--model ID] QUESTION` | Ask a separate side question; no text reopens the last panel |
+| `/sessions`, `/new` | List sessions or start a new one |
+| `/skills`, `/skill NAME`, `/extensions`, `/mcp` | Inspect and use extensions |
+| `/steer TEXT`, `/queue TEXT` | Guide the active turn or queue a follow-up |
+| `/thinking [on\|off]` | Toggle or set streamed reasoning visibility |
+| `/scope [level]` | Select `none`, `read-only`, `workspace`, or `full` while idle |
+| `/queue`, `/queue remove ID`, `/queue clear` | List/remove waiting prompts without stopping current work |
+| `/queue edit ID TEXT` | Replace a waiting prompt, preserving its ID and position |
+| `/help` | Show commands and shortcuts |
+| `/exit` | Exit when the main turn is idle |
 
-Digitando `/` si apre un menu scorrevole con tutti i comandi e una breve descrizione, inclusi quelli dei plugin caricati. La lista si filtra continuando a scrivere; ↑/↓ spostano la selezione e Invio esegue il comando scelto. Per i comandi con argomenti obbligatori, come `/mode` e `/steer`, Invio prepara l'input da completare. `Tab` completa senza eseguire. `Esc` o `Ctrl+C` chiudono il menu e riportano al prompt.
+Typing `/` opens a scrollable menu, including loaded plugin commands. Continue typing to filter; ↑/↓ selects and Enter runs the selection. Commands requiring arguments, such as `/mode` and `/steer`, prepare a draft. Tab completes without running. Esc/Ctrl+C closes the menu and returns to the prompt.
 
-Per modificare un messaggio in coda senza riscriverlo: **↑ dalla prima riga dell'input → ↑/↓ per scegliere → Invio/Tab per aprire**. Il testo esistente si modifica direttamente nell'input; **Invio salva**, **Esc annulla e ripristina la bozza**. La coda resta sospesa durante la modifica, mentre il turno già attivo continua.
+To edit a queued message, press **↑ on the first input line**, choose with **↑/↓**, and open with **Enter/Tab**. **Enter saves**; **Esc cancels and restores the previous draft**. The queue pauses while editing; the active turn continues. Skills in ordinary queued prompts activate when their turn starts. `/skill NAME` and a standalone `$skill` remain explicit activation commands.
 
-`/resume` apre un **menu ricercabile delle sessioni del progetto**, ordinate dalla più recente. Ogni voce mostra il nome scelto o un titolo ricavato localmente dal primo prompt, data, modello, modalità e ID breve; la sessione corrente è indicata e la selezione iniziale privilegia un'altra sessione. Scrivere filtra nome, titolo originale, ID completo, modello, modalità e data; ↑/↓ spostano la selezione e Invio riprende la sessione. Esc/Ctrl+C tornano al prompt. Se una sessione è già in uso o non può essere aperta, il menu mostra l'errore e mantiene la sessione corrente. `/resume ID` continua a funzionare; `--no-session` disabilita la ripresa. I titoli automatici restano disponibili dopo `/clear` e compattazione perché vengono letti dai checkpoint originali, senza usare NIM.
+### Sessions and side questions
 
-`/rename Piano del grafo` salva il nome della sessione corrente, che compare nel menu `/resume` e in `/sessions`. Il nome può contenere spazi e Unicode, deve essere di 1–120 caratteri su una sola riga e non può contenere caratteri di controllo. Rinomina e ricerca non chiamano NIM. Il nome sopravvive a riavvio, ripresa, `/clear` e compattazione; `/new` crea una sessione senza ereditare il nome. La rinomina richiede una sessione persistente e l'agente inattivo. I journal precedenti senza nome rimangono leggibili.
+`/resume` opens a searchable project session picker, newest first. Entries show the chosen name or locally derived first-prompt title, date, model, mode, and short ID. The current session is marked; initial selection favors another session. Search matches name, original title, full ID, model, mode, and date. Enter resumes; Esc/Ctrl+C returns. An unreadable or busy session keeps the current session intact and displays the error. `--no-session` disables resuming. Original checkpoints preserve automatic titles after clearing/compaction, without NIM calls.
 
-`/branch Strategia alternativa` crea un nuovo ID e una copia persistente di messaggi, riassunto, modalità e impostazioni correnti, poi passa alla copia. L'originale resta disponibile con `/resume`; il messaggio di conferma ne mostra l'ID. `/branch --model minimaxai/minimax-m3.1-flash Strategia alternativa` sceglie un modello per la copia senza cambiare quello dell'originale. L'effort viene mantenuto se supportato, altrimenti torna su `auto`. La ramificazione richiede persistenza e agente inattivo, non chiama NIM e condivide gli stessi file del progetto: non crea un branch Git o una worktree.
+`/rename Graph plan` persists a name visible in `/resume` and `/sessions`. Names support spaces/Unicode, contain 1–120 characters on one line, and reject control characters. Renaming is local, requires an idle persistent session, and survives restart, resume, clearing, and compaction. `/new` starts unnamed; older unnamed journals remain readable.
 
-`/btw --model z-ai/glm-5.3-flash Perché abbiamo scelto questo parser?` avvia una domanda laterale in un pannello separato, usando una copia del contesto disponibile e un client indipendente. Non ha tool, non modifica file o sessione principale e non salva la risposta nel journal. Il lavoro principale continua; tutte le chiamate NIM condividono la stessa coda a 37,5 RPM. Omettere `--model` usa il modello corrente, senza modificarne la selezione. L'opzione deve precedere domanda o nome; è accettata anche la forma `--model=provider/modello`.
+`/branch Alternative strategy` creates a new session ID and persistent copy of messages, summary, mode, and settings, then switches to it. The original remains available through `/resume`; the confirmation includes its ID. `/branch --model minimaxai/minimax-m3.1-flash Alternative strategy` selects a model for the copy without changing the original. Unsupported effort resets to `auto`. Branching requires persistence and an idle agent, makes no NIM call, and shares project files: it creates neither a Git branch nor a worktree.
 
-Nel pannello `/btw`, ↑/↓ scorrono la risposta, Esc torna al prompt lasciando proseguire il lavoro e Ctrl+C annulla soltanto la domanda laterale. A risposta conclusa, Invio/Spazio chiudono e `x` cancella la cronologia laterale. `/btw` senza testo riapre l'ultimo pannello senza chiamare NIM. Sono conservati in memoria al massimo 20 scambi laterali, entro il budget di contesto; `/clear`, cambio di sessione o chiusura li azzerano. È attiva al massimo una domanda laterale alla volta.
+`/btw --model z-ai/glm-5.3-flash Why did we choose this parser?` uses a conversation snapshot and an isolated client in a separate panel. It has no tools, does not modify files or the main session, and does not journal its answer. Main work continues; all inference shares the paced queue. Without `--model`, it uses the current model without changing selection. The option precedes the question or branch name; `--model=provider/model` also works.
 
-L'input è **multilinea**: Invio invia il prompt completo; `Ctrl+J`, `\` seguito da Invio e le sequenze Shift+Invio riconosciute aggiungono una nuova riga. Se il terminale non distingue Shift+Invio da Invio, usare una delle prime due alternative. Frecce, Home/End, Ctrl+A/Ctrl+E, Backspace e Canc modificano il testo senza spezzare emoji o caratteri combinati. I blocchi incollati mantengono righe e tabulazioni; un blocco multilinea che inizia con `/` viene trattato come prompt. L'editor scorre intorno al cursore, fino a sei righe visibili, lasciando il footer in basso.
+In the side panel, ↑/↓ scrolls, Esc returns without stopping work, and Ctrl+C cancels only the side question. After completion, Enter/Space closes and `x` clears side history. `/btw` without text reopens the panel without inference. At most 20 exchanges stay in memory within the context budget; clearing, switching sessions, or closing discards them. Only one side question can run at once.
 
-`Ctrl+R` apre la **ricerca nei prompt del progetto**, compresi quelli salvati in sessioni precedenti. Scrivere filtra senza distinzione tra maiuscole e minuscole; ↑/↓ o un altro Ctrl+R scorrono i risultati. Invio/Tab caricano il risultato nella bozza: un secondo Invio lo invia. Esc/Ctrl+C chiudono la ricerca ripristinando la bozza senza interrompere il lavoro. La ricerca riusa i journal esistenti e non crea nuovi file; con `--no-session` usa solo i prompt in memoria. Per mantenere la ricerca limitata, restituisce fino a 200 prompt distinti, leggendo la coda di massimo 100 journal recenti (1 MiB per file, 16 MiB totali); prompt molto vecchi possono quindi non comparire. Nessuna richiesta NIM per scrittura o ricerca.
+### Input, history, and references
 
-Nel selettore `/model` puoi scrivere per filtrare i nomi senza distinzione tra maiuscole e minuscole, usare Backspace per correggere e poi confermare con Invio. `/effort` mostra solo i livelli configurati per il modello attivo: inizialmente Mistral Large 4 (`auto`, `none`, `high`) e MiniMax M3.1 Flash (`auto`, `low`, `medium`, `high`, `xhigh`, `max`). Gli altri modelli usano `auto`, senza aggiungere parametri non verificati. La scelta compare nella barra di stato e viene salvata nella sessione; cambiando modello ritorna ad `auto` se il nuovo modello non supporta il livello scelto. Vedi [effort e parametri](docs/MODELS.md#reasoning-effort).
+Input is **multiline**. Enter submits the full prompt; Ctrl+J, backslash followed by Enter, and recognized Shift+Enter sequences insert a newline. If the terminal sends identical Enter/Shift+Enter sequences, use another newline shortcut. Arrow keys, Home/End, Ctrl+A/Ctrl+E, Backspace, and Delete edit without splitting emoji or combining characters. Pasted blocks preserve lines/tabs; multiline input starting with `/` is treated as a prompt. The editor scrolls around the cursor with up to six visible lines while preserving the footer.
 
-La maggior parte dei comandi slash è locale; `/compact` usa NIM e i comandi plugin possono eseguire operazioni esterne. Durante un turno l'input resta disponibile per follow-up e `/steer`. Quando non è aperto un menu, `Esc` cancella il lavoro attivo e svuota la coda; `Ctrl+C` fa lo stesso oppure esce quando l'agente è inattivo.
+Ctrl+R searches project prompts, including previous sessions. Search ignores case; ↑/↓ or another Ctrl+R navigates results. Enter/Tab loads a draft; another Enter submits it. Esc/Ctrl+C restores the previous draft without interrupting work. Search reuses journals without creating files; `--no-session` uses in-memory prompts only. It returns up to 200 distinct prompts from at most 100 recent journal tails, reading at most 1 MiB per file and 16 MiB total. Older prompts may fall outside these bounds. Editing/search require no NIM requests.
 
-Digitare `@` seguito dall'inizio di un file o simbolo per ottenere suggerimenti dall'indice. `↑` e `↓` selezionano un suggerimento, `Tab` completa il riferimento finale nell'input. Il completamento è disponibile anche per i comandi slash. Quando non ci sono completamenti attivi, `Tab` espande o richiude i dettagli dell'ultimo tool; durante il lavoro può farlo direttamente. I dettagli nel dock sono un'anteprima limitata, mentre log e diff applicati restano nella cronologia.
+Most slash commands are local. `/compact` and `/btw` use NIM; plugin commands can perform external operations. During a turn, input remains available for follow-ups and `/steer`. Outside menus, Esc cancels active main work and clears the queue; Ctrl+C does the same or exits while idle.
 
-`@src/file.ts`, `@NomeSimbolo`, `@file:percorso` e `@symbol:NomeSimbolo` allegano davvero sorgenti e righe al turno, entro un budget di massimo 12.000 caratteri. `/context` ne mostra il consumo. Fonti mancanti, ambigue o non sicure vengono segnalate prima dell'inferenza; dettagli e limiti nella [guida ai flussi host](docs/HOST-WORKFLOWS.md).
+Type `@` followed by part of a file or symbol for index suggestions. ↑/↓ selects; Tab completes the trailing reference. Completion also supports slash commands and local skill names through `$`. Without active completion, Tab toggles the latest tool's bounded detail preview.
 
-I diff unificati sono calcolati dal contenuto effettivo prima e dopo ogni scrittura riuscita: aggiunte verdi, eliminazioni rosse e intestazioni degli hunk ciano. Le modifiche fallite non producono diff. I comandi shell producono un log di esito, ma non un diff automatico delle modifiche esterne. Le sequenze di controllo terminale provenienti da sorgenti e output del modello vengono eliminate prima della visualizzazione.
+`@src/file.ts`, `@SymbolName`, `@file:path`, and `@symbol:SymbolName` attach source and line ranges when scope permits, within a 12,000-character budget. `/context` shows usage. Missing, ambiguous, or unsafe references are reported before inference. See [host workflows](docs/HOST-WORKFLOWS.md) for selection rules and limits.
 
-`AgentLoop.initialize()`, `setModel()`, `compact()` e `graphSnapshot` permettono alla UI di gestire indice, modello e contesto senza ricreare la sessione. Il pacing NIM viene verificato al momento dell'invio HTTP effettivo, così la preparazione variabile delle richieste nell'SDK non accorcia l'intervallo di 1600 ms.
+Unified diffs use actual contents before and after successful writes: additions green, deletions red, and hunk headers cyan. Failed edits produce no successful diff. Shell commands report outcomes without automatic diffs for their filesystem effects. Terminal control sequences from source/model output are stripped before display.
 
-La verifica include rendering Ink, completamento con tastiera, comandi slash, countdown, diff, test del ciclo agente e uno smoke test della CLI in un terminale Windows. Le risposte NIM nei test sono simulate.
+## Project memory, undo, and rewind
 
-### Stato delle dipendenze UI
+The CLI enables durable notes per canonical workspace at `~/.kairos/memory/<hash>/notes.json`. Notes survive new sessions in that project and remain separate from conversation summaries and the global last-model preference. Use `/memory` to inspect/manage notes, `--no-memory` to disable them, or opt in through SDK `memory: { directory? }`.
 
-La Fase 5 ha rimosso `@inkjs/ui`, usato soltanto per lo spinner, insieme a quattro dipendenze transitive. La barra mostra l'attività tramite i componenti Ink già presenti. Alla verifica del 31 ottobre 2026, `npm audit` riporta zero vulnerabilità note.
+The model proposes notes with `memory_update_batch`, subject to validation and edit permissions. Limits are 50 notes, 2,000 characters per note, a 32 KiB store, and up to 4,000 injected characters. Notes have stable IDs/timestamps, never grant permissions, and reject recognizable credentials, private keys, and raw source. Stale approval previews cannot overwrite newer notes.
+
+Memory writes are atomic and backed up in `.bak`. Processes serialize updates through complete owner records published with hard links. Release and dead-owner recovery rename the public lock to a private generation before deletion, avoiding the Windows race between opening and deleting the shared name. Persistent permission errors and corrupt owners still fail closed; failed memory writes are not retried automatically.
+
+`/undo` previews the latest journaled edit batch and restores it only if paths, contents, and identities still match the approved state. `/rewind` selects a checkpoint from before a prompt, with scope `conversation`, `files`, or `both`. File restoration requires edit permission/journals and refuses conflicting user or other-session changes. Shell, plugin, and MCP effects are not restored. Rewind leaves project notes, global model preferences, and terminal scrollback intact.
+
+Rewind retains at most 100 points and 32 MiB per archive. Persistent CLI sessions use `~/.kairos/rewind`; `--no-session` keeps points in memory. Session journals above 64 MiB are rejected on resume: preserve/export the journal and start a new session. Journals contain local project data and should remain private. See [advanced workflows](docs/ADVANCED-WORKFLOWS.md) for recovery and SDK options.
+
+## JSON, RPC, and SDK
+
+```sh
+kairos --prompt "Explain NimClient" --json
+kairos --rpc
+kairos --list-sessions
+kairos --continue
+```
+
+Plain prompts use `--prompt`. `--json --prompt` streams JSONL events and a final result; `--rpc` serves JSON-RPC over stdin/stdout and is mutually exclusive with prompt/JSON output. Noninteractive operations requiring approval return an error unless the host has explicitly configured permissions.
+
+The package exports `createAgent`, `AgentLoop`, `NimClient`, `Interaction`, session/memory/rewind stores, settings helpers, permissions, and RPC utilities. SDK callers own environment/configuration loading and must close their agent. `AgentLoop.initialize()`, `setModel()`, `compact()`, and `graphSnapshot` let hosts manage graph/model/context without recreating sessions. Scopes and policies also apply to SDK tool execution.
+
+See [agent workflows](docs/WORKFLOWS.md), [host workflows](docs/HOST-WORKFLOWS.md), and [advanced workflows](docs/ADVANCED-WORKFLOWS.md) for RPC methods, event formats, extension configuration, and SDK examples.
+
+## Verification and development history
+
+Verification covers real parsers, simulated NIM HTTP/SSE, pacing and cross-process coordination, editing, approval/undo/rewind safeguards, memory concurrency, Ink rendering, keyboard completion, queues, session pickers, countdowns, and CLI workflows. The memory deletion race has a deterministic regression; a separate test keeps persistent `EPERM` failures visible. Windows terminal smoke coverage is included. Local test results do not certify live NIM endpoints or every host platform.
+
+The original phases cover the NIM client/batch tools, Code Graph, agent loop, and inline CLI. The [Phase 5 audit](docs/PHASE-5-AUDIT.md) records earlier simplifications, including removal of `@inkjs/ui` and its spinner-only dependency chain. The [November 2 audit-fix plan](docs/superpowers/plans/2026-11-02-audit-fixes.md) records later scope, configuration, and UI corrections. The [Pi/OpenCode comparison](docs/PI-OPENCODE-COMPARISON.md) and [Claude Code research](docs/CLAUDE-CODE-RESEARCH.md) provide historical context. Check dependency security separately; an earlier audit is not a current guarantee.
