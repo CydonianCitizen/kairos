@@ -8,6 +8,7 @@ import type { AgentMode } from '../core/session-store.js';
 import type { ToolResult } from '../tools/registry.js';
 import { McpConnection, type McpConfig } from './mcp.js';
 import { PermissionError } from '../core/permissions.js';
+import { EXTENSION_CONFIG_KEYS } from '../config/settings.js';
 
 export interface ExtensionTool {
   name: string;
@@ -32,6 +33,16 @@ export interface ExtensionHostOptions {
 interface Config {
   plugins?: string[];
   mcpServers?: Record<string, McpConfig>;
+}
+function validateConfig(value: unknown, workspace = false): Config {
+  const config = value as Config;
+  if (!config || typeof config !== 'object' || Array.isArray(config)
+    || (workspace && Object.keys(config).some(key => !EXTENSION_CONFIG_KEYS.some(allowed => allowed === key)))
+    || (config.plugins !== undefined && (!Array.isArray(config.plugins) || config.plugins.some(path => typeof path !== 'string' || !path.trim())))
+    || (config.mcpServers !== undefined && (!config.mcpServers || typeof config.mcpServers !== 'object' || Array.isArray(config.mcpServers)))) {
+    throw new Error(workspace ? 'Invalid .nim/config.json' : 'Invalid personal extension configuration');
+  }
+  return config;
 }
 
 export interface Skill {
@@ -161,7 +172,7 @@ export class ExtensionHost {
       const globalConfigFile = options?.globalConfigPath ?? join(homedir(), '.kairos', 'config.json');
       let gConfig: Config = {};
       try {
-        gConfig = JSON.parse(await boundedFile(globalConfigFile, 64000));
+        gConfig = validateConfig(JSON.parse(await boundedFile(globalConfigFile, 64000)));
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
@@ -191,10 +202,7 @@ export class ExtensionHost {
     // 3. Workspace extensions (ONLY if trusted)
     if (trusted) {
       try {
-        const c = JSON.parse(await boundedFile(await inside(workspace, '.nim/config.json'), 64000));
-        if (!c || typeof c !== 'object' || Array.isArray(c) || Object.keys(c).some(k => !['plugins', 'mcpServers'].includes(k)) || (c.plugins && (!Array.isArray(c.plugins) || c.plugins.some((p: unknown) => typeof p !== 'string'))) || (c.mcpServers && (typeof c.mcpServers !== 'object' || Array.isArray(c.mcpServers)))) {
-          throw new Error('Invalid .nim/config.json');
-        }
+        const c = validateConfig(JSON.parse(await boundedFile(await inside(workspace, '.nim/config.json'), 64000)), true);
         for (const p of c.plugins ?? []) {
           const file = await inside(workspace, p);
           if (!host.pluginFiles.includes(file)) host.pluginFiles.push(file);
@@ -318,7 +326,7 @@ export class ExtensionHost {
     return names.map(name => ({ type: 'function', function: { name, description: descriptions[name]!, parameters: schemas[name]! } }));
   }
 
-  async execute(name: string, raw: unknown, signal?: AbortSignal, mode: AgentMode = 'build', beforeExecute?: () => Promise<void>): Promise<ToolResult> {
+  async execute(name: string, raw: unknown, signal?: AbortSignal, mode: AgentMode = 'build', beforeExecute?: () => Promise<void>, beforeOperation?: () => void): Promise<ToolResult> {
     let mutated = false;
     try {
       signal?.throwIfAborted();
@@ -335,6 +343,7 @@ export class ExtensionHost {
       let ok = true;
       for (const operation of operations) {
         signal?.throwIfAborted();
+        beforeOperation?.();
         mutated = true;
         try {
           results.push({ ok: true, result: await operation() });

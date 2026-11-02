@@ -42,7 +42,7 @@ export class ToolRegistry {
     }
     return [
       ...(mode === 'build' && scope !== 'read-only' ? [...tools, ...(this.features.memory ? [MEMORY_SCHEMA] : [])] : tools),
-      ...(this.extensions?.schemas(mode) ?? [])
+      ...(this.extensions?.schemas(scope === 'read-only' ? 'plan' : mode) ?? [])
     ];
   }
 
@@ -51,7 +51,7 @@ export class ToolRegistry {
       signal?.throwIfAborted();
       const scope = this.fs.getScope();
       if (scope === 'none') throw new Error(`Tool ${name} is disabled (scope: none)`);
-      if (scope === 'read-only' && ['apply_edits_batch', 'run_bash', 'background_tasks_batch', 'memory_update_batch'].includes(name)) {
+      if (scope === 'read-only' && !['read_files_batch', 'get_repo_map', 'inspect_symbol_graph', 'load_skills_batch'].includes(name)) {
         throw new Error(`Tool ${name} is disabled in read-only scope`);
       }
       if (mode === 'plan' && !['read_files_batch', 'get_repo_map', 'inspect_symbol_graph', 'load_skills_batch'].includes(name)) throw new Error(`Tool ${name} is disabled in plan mode`);
@@ -73,7 +73,7 @@ export class ToolRegistry {
           });
           let result;
           const prepared = await this.fs.prepare_edits_batch(edits, signal);
-          const metadata={paths:prepared.paths??edits.map(edit=>edit.path)};
+          const metadata={paths:prepared.paths??edits.map(edit=>edit.path),allowOutsideWorkspace:scope==='full'};
           if (this.permissions.mode('edits',metadata) === 'ask') {
             if (prepared.preview.every(item => !item.ok)) return { ok: false, result: prepared.preview, mutated: false };
             await this.permissions.authorize('edits', name, `Edit ${new Set(edits.map(edit => edit.path)).size} file(s)`,
@@ -118,7 +118,8 @@ export class ToolRegistry {
         }
         default:
           if (this.extensions?.schemas(mode).some(t => t.type === 'function' && t.function.name === name)) return this.extensions.execute(name, raw, signal, mode,
-            () => {const args=raw as {calls?:{name:string}[];requests?:{server:string}[]};return this.permissions.authorize('external', name, 'Call external tools or resources', JSON.stringify(raw, null, 2), signal,{tools:args.calls?.map(call=>call.name)??args.requests?.map(request=>`${request.server}:resources`)??[name]});});
+            () => {const args=raw as {calls?:{name:string}[];requests?:{server:string}[]};return this.permissions.authorize('external', name, 'Call external tools or resources', JSON.stringify(raw, null, 2), signal,{tools:args.calls?.map(call=>call.name)??args.requests?.map(request=>`${request.server}:resources`)??[name]});},
+            () => this.fs.assertWritable('External operations'));
           throw new Error(`Unknown tool: ${name}`);
       }
     } catch (error) { return { ok: false, error: signal?.aborted ? 'Tool cancelled' : errorText(error), mutated: false,

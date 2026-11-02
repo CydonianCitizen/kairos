@@ -13,7 +13,7 @@ import type { RewindSummary } from '../core/rewind-store.js';
 import type { TaskInfo } from '../core/background-tasks.js';
 import type { WorkspaceScope } from '../tools/fs-tools.js';
 export interface ToolDisplay { name:string;id:string;result?:ToolResult;arguments?:string;detail?:string }
-export interface HistoryEntry { id:number;kind:'user'|'assistant'|'info'|'error'|'tool'|'diff'|'thinking';text:string;tool?:ToolDisplay }
+export interface HistoryEntry { id:number;kind:'user'|'assistant'|'info'|'error'|'tool'|'diff'|'thinking';text:string;tool?:ToolDisplay;fullDiff?:boolean }
 export interface SideQuestionDisplay extends SideQuestionEvent { streaming:string; result?:AgentResult; cooldownUntil:number; cooldownReason:string }
 export interface QueueEditState {id:number;draft:Draft;previousDraft:Draft;error?:string}
 export interface UiState {
@@ -108,7 +108,7 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
     }
     if(added||removed)diffstatDetail=`(+${added} -${removed})`;
    }
-   this.update({lastTool:{id,name,result:JSON.parse(serializeToolResult(result,2000)) as ToolResult},activity:'Waiting for NIM'});
+   this.update({lastTool:{id,name,arguments:toolArgs,detail:diffstatDetail,result:JSON.parse(serializeToolResult(result,2000)) as ToolResult},activity:'Waiting for NIM'});
    this.add('tool',name,{id,name,arguments:toolArgs,detail:diffstatDetail,result:{ok:result.ok,error:result.error,mutated:result.mutated}});
   };
   const turnStart=(prompt:string)=>{this.add('user',prompt);this.update({busy:true,activity:'Thinking',streaming:'',thinkingStream:'',cooldownUntil:0,modelPickerOpen:false,effortPickerOpen:false,resumeSessions:undefined,resumeError:undefined,rewindPoints:undefined});};
@@ -160,7 +160,7 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
  }
  subscribe=(listener:()=>void):(()=>void)=>{this.on('change',listener);return()=>{this.off('change',listener);};};
  private update(patch:Partial<UiState>):void{if(!this.disposed){this.state={...this.state,...patch};this.emit('change');}}
- private add(kind:HistoryEntry['kind'],text:string,tool?:ToolDisplay):void{this.update({history:[...this.state.history,{id:this.nextId++,kind,text:safeText(text),tool}]});}
+ private add(kind:HistoryEntry['kind'],text:string,tool?:ToolDisplay,fullDiff?:boolean):void{this.update({history:[...this.state.history,{id:this.nextId++,kind,text:safeText(text),tool,...(fullDiff?{fullDiff:true}:{})}]});}
  private flush(fallback=''):void{const text=this.state.streaming||fallback;if(text)this.add('assistant',text);this.update({streaming:''});}
  start():Promise<void>{return this.startPromise??=(async()=>{await this.action('Loading workspace',signal=>this.agent.initialize(signal));this.showRestored();})();}
  private showRestored():void{if(this.agent.messages.length){this.add('info',`Resumed session ${this.agent.sessionId??''}`);for(const m of this.agent.messages)if((m.role==='user'||m.role==='assistant')&&typeof m.content==='string')this.add(m.role,m.content);}}
@@ -241,13 +241,6 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
      return;
     }
    }
-   const matchedSkills=this.agent.extensions?.resolveSkillsFromPrompt(prompt)??[];
-   for(const skill of matchedSkills){
-    this.agent.extensions?.activateSkill(skill);
-   }
-   if(matchedSkills.length>0){
-    this.add('info',`Skill activated: ${matchedSkills.map(s=>'$'+s).join(', ')}`);
-   }
    await this.sendPrompt(prompt);
    return;
   }
@@ -274,12 +267,12 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
     case '/mode':case '/plan':case '/build':this.agent.setMode((command==='/mode'?args:command.slice(1)) as AgentMode);this.add('info',`Mode: ${this.agent.mode}`);break;
     case '/clear':this.agent.clear();this.clearSideQuestions();this.lastDiffs=[];this.add('info','Conversation cleared. Terminal scrollback preserved.');break;
     case '/compact':if(args&&args!=='local')throw new Error('Use /compact or /compact local');if(!await this.agent.compactContext({strategy:args==='local'?'local':'model',signal}))this.add('info','Nothing to compact.');break;
-    case '/graph':await this.agent.initialize(signal);this.add('info',this.agent.graphSnapshot!.getRepoMap(args||undefined));break;
+    case '/graph':await this.agent.initialize(signal);if(!this.agent.graphSnapshot)throw new Error('Workspace graph is disabled (scope: none)');this.add('info',this.agent.graphSnapshot.getRepoMap(args||undefined));break;
     case '/context':{const snapshot=this.agent.contextSnapshot;this.add('info',`Explicit references: ${snapshot.references.length} · ${snapshot.chars}/${snapshot.maxChars} characters\n`+snapshot.references.map(ref=>`${ref.kind}: ${ref.path}:${ref.startLine}–${ref.endLine}${ref.name?` ${ref.name}`:''}${ref.truncated?' [truncated]':''}`).join('\n'));break;}
     case '/undo':{if(args)throw new Error('Use /undo without arguments');const results=await this.agent.undoLast(signal);if(!results.length)this.add('info','No KAIROS edit batch to undo.');for(const result of results){if(result.ok&&result.diff)this.add('diff',result.diff);else if(!result.ok)this.add('error',`${result.path}: ${result.error}`);}break;}
     case '/diff':{
      if(!this.lastDiffs.length)this.add('info','No recent file edits to inspect.');
-     else for(const diff of this.lastDiffs)this.add('diff',diff);
+     else for(const diff of this.lastDiffs)this.add('diff',diff,undefined,true);
      break;
     }
     case '/sessions':this.add('info',(await this.agent.listSessions()).map(s=>`${s.id} ${s.updatedAt} ${s.mode} ${s.model} · ${s.name??s.title??'Empty session'}`).join('\n')||'No sessions.');break;

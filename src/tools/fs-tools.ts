@@ -45,10 +45,13 @@ export class FsTools {
   constructor(private readonly workspace: string, private readonly bashPath?: string, private readonly options: FsToolsOptions = {}) {
     this.scope = options.scope ?? 'workspace';
     if (options.undoDirectory) this.undo = new UndoStore(workspace, options.undoDirectory);
-    this.background = new BackgroundTasks(workspace, bashPath, options.shellInvocation);
+    this.background = new BackgroundTasks(workspace, bashPath, options.shellInvocation, () => this.assertWritable('Shell execution'));
   }
 
   getScope(): WorkspaceScope { return this.scope; }
+  assertWritable(operation = 'Filesystem modification'): void {
+    if (this.scope === 'none' || this.scope === 'read-only') throw new Error(`${operation} is disabled (scope: ${this.scope})`);
+  }
   setScope(scope: WorkspaceScope): void {
     if (!['none', 'read-only', 'workspace', 'full'].includes(scope)) throw new Error(`Invalid workspace scope: ${scope}`);
     this.scope = scope;
@@ -84,6 +87,7 @@ export class FsTools {
   }
 
   private async write(file: string, content: string | Buffer, creating: boolean, signal?: AbortSignal, restoredMode?: number, beforeCommit?: () => Promise<void>, onPublication?: () => void): Promise<void> {
+    this.assertWritable();
     const mode = restoredMode ?? (creating ? undefined : (await stat(file)).mode);
     const temporary = `${file}.${randomUUID()}.tmp`;
     let committed = false;
@@ -92,6 +96,7 @@ export class FsTools {
       if (mode !== undefined) await chmod(temporary, mode & 0o7777);
       await beforeCommit?.();
       signal?.throwIfAborted();
+      this.assertWritable();
       // Linking a new file is atomic and fails if another writer created the target.
       onPublication?.();
       if (creating) await link(temporary, file);
@@ -158,9 +163,7 @@ export class FsTools {
   }
 
   private async prepare(edits: Edit[], signal?: AbortSignal): Promise<PreparedEdits & { applyNow(signal?: AbortSignal): Promise<FileResult[]> }> {
-    if (this.scope === 'none' || this.scope === 'read-only') {
-      throw new Error(`Filesystem modification is disabled (scope: ${this.scope})`);
-    }
+    this.assertWritable();
     this.validateBatch(edits);
     const files = new Map<string, PlannedFile>();
     const operations: (PlannedEdit | undefined)[] = [];
@@ -205,6 +208,7 @@ export class FsTools {
       used = true;
       const touched = [...files.values()].filter(file => file.stages.length);
       try {
+        this.assertWritable();
         applySignal?.throwIfAborted();
         for (const file of touched) {
           for (const alias of file.aliases) {
@@ -333,6 +337,7 @@ export class FsTools {
     const sourceOutcomes: Record<string, UndoEntry[]> = {};
     const failure = (error: unknown, paths: string[] = ['']): FileResult[] => paths.map(path => ({ path, ok: false, error: errorText(error) }));
     try {
+      this.assertWritable();
       signal?.throwIfAborted();
       if (!Array.isArray(owners) || owners.some(owner => typeof owner !== 'string' || !owner.trim())) throw new Error('Invalid rewind owners');
       owner = owners[0];
@@ -397,6 +402,7 @@ export class FsTools {
       used = true; if (!bound) return [];
       const currentSignal = applySignal ?? signal;
       try {
+        this.assertWritable();
         currentSignal?.throwIfAborted();
         if (JSON.stringify(await this.undo!.records()) !== signature) throw new Error('Rewind preview is stale: the edit journal changed');
         for (let index = 0; index < bound.entries.length; index++) {
@@ -412,7 +418,7 @@ export class FsTools {
 
   private async prepareUndoNow(signal?: AbortSignal): Promise<{ preview: FileResult[]; applyNow(signal?: AbortSignal): Promise<FileResult[]> }> {
     let plan: UndoPlan | undefined;
-    try { signal?.throwIfAborted(); plan = await this.undoPlan(); }
+    try { this.assertWritable(); signal?.throwIfAborted(); plan = await this.undoPlan(); }
     catch (error) {
       const preview: FileResult[] = [{ path: '', ok: false, error: errorText(error) }];
       return { preview, applyNow: async () => preview };
@@ -430,6 +436,7 @@ export class FsTools {
     const restored: number[] = [];
     let mutationPossible = false;
     try {
+      this.assertWritable();
       signal?.throwIfAborted();
       if ((await this.latestUndo())?.id !== plan.id) throw new Error('Undo preview is stale: the latest journaled batch changed');
       // Validate every target before changing any of them, including a preview approved earlier.
@@ -448,7 +455,7 @@ export class FsTools {
         const entry = plan.entries[index]!; const current = plan.snapshots[index]!;
         if (!this.same(current, await this.undoSnapshot(entry.path))) throw new Error(`Undo target changed during restore: ${entry.path}`);
         if (this.matchesBefore(current, entry.before)) continue;
-        if (entry.before === null) { mutationPossible = true; await unlink(current.file); }
+        if (entry.before === null) { this.assertWritable(); mutationPossible = true; await unlink(current.file); }
         else await this.write(current.file, Buffer.from(entry.before.data, 'base64'), false, signal, entry.before.mode, async () => {
           if (!this.same(current, await this.undoSnapshot(entry.path))) throw new Error(`Undo target changed while staging restore: ${entry.path}`);
         }, () => { mutationPossible = true; });
@@ -484,7 +491,7 @@ export class FsTools {
     }
     validateShell(command, timeoutMs);
     try {
-      return await (await launchShell(this.workspace, this.bashPath, command, { timeoutMs, signal, invocation: this.options.shellInvocation })).result;
+      return await (await launchShell(this.workspace, this.bashPath, command, { timeoutMs, signal, invocation: this.options.shellInvocation, beforeSpawn: () => this.assertWritable('Shell execution') })).result;
     } catch (error) {
       if (error instanceof ShellStartupError) return { ...error.result, error: error.result.error ?? error.message };
       return { stdout: '', stderr: '', exitCode: null, timedOut: false, truncated: false, error: errorText(error), aborted: signal?.aborted };

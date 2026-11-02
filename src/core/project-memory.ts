@@ -133,6 +133,13 @@ async function claimLock(path: string, owner: LockOwner): Promise<boolean> {
   } finally { await unlink(candidate).catch(error => { if (!absent(error)) throw error; }); }
 }
 
+async function retireLock(path: string): Promise<void> {
+  // Keep Windows pending-delete state away from the next owner's shared name.
+  const retired = `${path}.${randomUUID()}.retired`;
+  await rename(path, retired);
+  await unlink(retired);
+}
+
 async function recoverLock(path: string, dead: LockOwner, reaper: LockOwner, deadline: number): Promise<void> {
   // Retained immutable elections keep a delayed reaper from unlinking a newer owner's lock.
   for (let generation = 0; performance.now() < deadline; generation++) {
@@ -141,7 +148,7 @@ async function recoverLock(path: string, dead: LockOwner, reaper: LockOwner, dea
     if (elected) { if (ownerAlive(elected.pid)) return; continue; }
     if (!await claimLock(election, reaper)) { generation--; continue; }
     const current = await lockOwner(path);
-    if (current?.id === dead.id && current.pid === dead.pid && !ownerAlive(current.pid)) await unlink(path);
+    if (current?.id === dead.id && current.pid === dead.pid && !ownerAlive(current.pid)) await retireLock(path);
     return;
   }
 }
@@ -156,7 +163,7 @@ async function acquireLock(path: string): Promise<() => Promise<void>> {
         if (await claimLock(path, owner)) return async () => {
           const current = await lockOwner(path);
           if (current?.id !== owner.id || current.pid !== owner.pid) throw new Error('Project memory lost its lock; refusing to remove another owner');
-          await unlink(path);
+          await retireLock(path);
         };
       } else if (!ownerAlive(current.pid)) await recoverLock(path, current, owner, deadline);
       await new Promise(resolve => setTimeout(resolve, Math.min(25, Math.max(0, deadline - performance.now()))));

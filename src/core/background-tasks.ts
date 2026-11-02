@@ -18,11 +18,13 @@ export class BackgroundTasks extends EventEmitter<{ change: [TaskInfo[]] }> {
   private closed = false;
   private closing?: Promise<void>;
 
-  constructor(private readonly workspace: string, private readonly bashPath?: string, private readonly invocation?: ShellInvocationBuilder) { super(); }
+  constructor(private readonly workspace: string, private readonly bashPath?: string, private readonly invocation?: ShellInvocationBuilder,
+    private readonly beforeStart?: () => void) { super(); }
 
   get running(): boolean { return this.starts.size > 0 || [...this.tasks.values()].some(task => task.info.status === 'running'); }
 
   async start(command: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<TaskInfo> {
+    this.beforeStart?.();
     validateShell(command, options.timeoutMs ?? 30000);
     options.signal?.throwIfAborted();
     if (this.closed) throw new Error('Background task manager is closed');
@@ -37,7 +39,7 @@ export class BackgroundTasks extends EventEmitter<{ change: [TaskInfo[]] }> {
   }
 
   private async startNow(command: string, options: { timeoutMs?: number; signal?: AbortSignal }): Promise<TaskInfo> {
-    const process = await launchShell(this.workspace, this.bashPath, command, { ...options, invocation: this.invocation });
+    const process = await launchShell(this.workspace, this.bashPath, command, { ...options, invocation: this.invocation, beforeSpawn: this.beforeStart });
     if (options.signal?.aborted || this.closed) {
       await process.stop();
       options.signal?.throwIfAborted();

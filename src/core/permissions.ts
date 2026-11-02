@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { posix } from 'node:path';
 
 export type PermissionMode = 'allow' | 'ask' | 'deny';
 export type PermissionKind = 'edits' | 'shell' | 'external';
 export interface PermissionRule { kind: PermissionKind; mode: PermissionMode; pattern: string }
 export type PermissionRules = Partial<Record<PermissionKind, PermissionMode>> & { rules?: PermissionRule[] };
-export interface PermissionMetadata { paths?: string[]; command?: string; tools?: string[] }
+export interface PermissionMetadata { paths?: string[]; command?: string; tools?: string[]; allowOutsideWorkspace?: boolean }
 export interface ApprovalRequest {
   id: string;
   kind: PermissionKind;
@@ -24,9 +25,14 @@ function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
-function normalizePath(value: string): string | undefined {
+function normalizePath(value: string, allowOutsideWorkspace = false): string | undefined {
   const path = value.replace(/\\/g, '/');
-  if (!path || path.startsWith('/') || /^[A-Za-z]:/.test(path) || /[\x00-\x1f\x7f]/.test(path)) return undefined;
+  if (!path || /[\x00-\x1f\x7f]/.test(path)) return undefined;
+  if (allowOutsideWorkspace) {
+    const normalized = posix.normalize(path);
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+  }
+  if (path.startsWith('/') || /^[A-Za-z]:/.test(path)) return undefined;
   const segments = path.split('/');
   if (segments.includes('..')) return undefined;
   const normalized = segments.filter(part => part !== '' && part !== '.').join('/');
@@ -117,7 +123,7 @@ export class PermissionGate {
     let mode: PermissionMode = 'allow';
     for (const value of raw) {
       if (typeof value !== 'string' || !value || value.length > MAX_TARGET_LENGTH || value.includes('\0')) return 'deny';
-      const target = kind === 'edits' ? normalizePath(value) : kind === 'shell' ? value.replace(/\r\n/g, '\n')
+      const target = kind === 'edits' ? normalizePath(value, metadata.allowOutsideWorkspace === true) : kind === 'shell' ? value.replace(/\r\n/g, '\n')
         : /^[\w:./@-]+$/.test(value) ? value : undefined;
       if (target === undefined) return 'deny';
       let matched: PermissionMode | undefined;

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, appendFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, appendFile, rm, utimes } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -31,6 +31,9 @@ it('finds prompts across project sessions and before compaction without returnin
  const second = await SessionStore.create(dir, dir, { ...state, messages: [{ role: 'user', content: 'New session prompt' }] }); await second.close();
  const foreign = await SessionStore.create(dir, other, { ...state, messages: [{ role: 'user', content: 'private other workspace' }] }); await foreign.close();
  await appendFile(join(dir, `${second.id}.jsonl`), '{"partial":');
+ // Back-to-back Windows writes can have equal mtimes; the fixture requires a known order.
+ await utimes(join(dir, `${first.id}.jsonl`), 1700000000, 1700000000);
+ await utimes(join(dir, `${second.id}.jsonl`), 1700000010, 1700000010);
  const prompts = await SessionStore.promptHistory(dir, dir);
  expect(prompts).toContain('Remember the goal'); expect(prompts).toContain('Investigate\nthe graph');
  expect(prompts).toContain('New session prompt'); expect(prompts).not.toContain('private other workspace');

@@ -92,7 +92,7 @@ async function groupAlive(pid: number | undefined): Promise<boolean> {
 }
 
 export async function launchShell(workspace: string, bashPath: string | undefined, command: string, options: {
-  timeoutMs?: number; signal?: AbortSignal; invocation?: ShellInvocationBuilder;
+  timeoutMs?: number; signal?: AbortSignal; invocation?: ShellInvocationBuilder; beforeSpawn?: () => void;
 } = {}): Promise<ShellProcess> {
   const timeoutMs = options.timeoutMs ?? 30000;
   validateShell(command, timeoutMs);
@@ -111,7 +111,7 @@ export async function launchShell(workspace: string, bashPath: string | undefine
   const deadline = Date.now() + timeoutMs;
   let child: ChildProcessByStdio<Writable | null, Readable, Readable>;
   const spawnOptions = { cwd: invocation.cwd ?? cwd, env: invocation.env, windowsHide: true, detached: process.platform !== 'win32' };
-  try { child = process.platform === 'win32' ? spawn(invocation.file, invocation.args, { ...spawnOptions, stdio: ['pipe', 'pipe', 'pipe'] }) : spawn(invocation.file, invocation.args, { ...spawnOptions, stdio: ['ignore', 'pipe', 'pipe'] }); }
+  try { options.beforeSpawn?.(); child = process.platform === 'win32' ? spawn(invocation.file, invocation.args, { ...spawnOptions, stdio: ['pipe', 'pipe', 'pipe'] }) : spawn(invocation.file, invocation.args, { ...spawnOptions, stdio: ['ignore', 'pipe', 'pipe'] }); }
   catch (error) {
     await diagnoseStartup(error, invocation.file);
     await releaseJob?.(); throw error;

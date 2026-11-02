@@ -30,6 +30,7 @@ export interface SettingsOverrides {
 export interface SettingsOptions { trustWorkspace?: boolean; overrides?: SettingsOverrides }
 const MAX_BYTES = 32 * 1024;
 const KEYS = ['model', 'effort', 'timeoutMs', 'systemPromptFile', 'permissions', 'memory', 'sandbox', 'scope'] as const;
+export const EXTENSION_CONFIG_KEYS = ['plugins', 'mcpServers'] as const;
 
 async function readText(file: string, label: string, optional = false): Promise<string | undefined> {
   const handle = await open(file, 'r').catch((error: NodeJS.ErrnoException) => {
@@ -53,10 +54,10 @@ async function readText(file: string, label: string, optional = false): Promise<
   } finally { await handle.close(); }
 }
 
-function validateSettings(value: unknown, label: string, allowUndefined = false): SettingsOverrides {
+function validateSettings(value: unknown, label: string, allowUndefined = false, personal = false): SettingsOverrides {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} must be a JSON object`);
   const data = value as Record<string, unknown>;
-  if (Object.keys(data).some(key => !KEYS.some(allowed => allowed === key))) throw new Error(`${label} contains an unsupported setting; allowed: ${KEYS.join(', ')}`);
+  if (Object.keys(data).some(key => !KEYS.some(allowed => allowed === key) && !(personal && EXTENSION_CONFIG_KEYS.some(allowed => allowed === key)))) throw new Error(`${label} contains an unsupported setting; allowed: ${[...KEYS, ...(personal ? EXTENSION_CONFIG_KEYS : [])].join(', ')}`);
   const result: SettingsOverrides = {};
   for (const key of KEYS) {
     if (!Object.hasOwn(data, key) || (allowUndefined && data[key] === undefined)) continue;
@@ -90,12 +91,12 @@ function validateSettings(value: unknown, label: string, allowUndefined = false)
   return result;
 }
 
-async function readSettings(file: string, label: string): Promise<SettingsOverrides> {
+async function readSettings(file: string, label: string, personal = false): Promise<SettingsOverrides> {
   const text = await readText(file, label, true);
   if (text === undefined) return {};
   let data: unknown;
   try { data = JSON.parse(text); } catch { throw new Error(`${label} contains invalid JSON`); }
-  return validateSettings(data, label);
+  return validateSettings(data, label, false, personal);
 }
 
 function isWithin(root: string, file: string): boolean {
@@ -116,7 +117,7 @@ async function workspaceFile(file: string, workspace: string): Promise<string | 
 
 export async function loadSettings(workspace: string, options: SettingsOptions = {}): Promise<Settings> {
   const personalDirectory = join(homedir(), '.kairos');
-  const personal = await readSettings(join(personalDirectory, 'config.json'), 'Personal settings (~/.kairos/config.json)');
+  const personal = await readSettings(join(personalDirectory, 'config.json'), 'Personal settings (~/.kairos/config.json)', true);
   const projectDirectory = join(resolve(workspace), '.kairos');
   let project: SettingsOverrides = {};
   if (options.trustWorkspace) {

@@ -50,7 +50,7 @@ export function App({ controller, version }: { controller: UiController; version
   const historyEntries = (ready ? state.history : []).map(entry => {
     const isCompact = entry.kind === 'tool' || entry.kind === 'thinking';
     return <Box key={entry.id} flexDirection="column" marginBottom={isCompact ? 0 : 1}>
-      {entry.kind === 'diff' ? <DiffBlock diff={entry.text} /> : entry.kind === 'tool' && entry.tool ? <ToolCallBadge tool={entry.tool} /> :
+      {entry.kind === 'diff' ? <DiffBlock diff={entry.text} maxLines={entry.fullDiff ? Infinity : undefined} /> : entry.kind === 'tool' && entry.tool ? <ToolCallBadge tool={entry.tool} /> :
        entry.kind === 'thinking' ? <Box flexDirection="row" marginY={0}>
          <Text color={theme.graph} bold>💭 Thought </Text>
          <Text color={theme.borderMuted}>({entry.text.split('\n').filter(Boolean).length} lines): </Text>

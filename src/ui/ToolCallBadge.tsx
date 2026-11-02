@@ -3,6 +3,9 @@ import type { ToolDisplay } from './controller.js';
 import { safeText } from './text.js';
 import { theme } from './theme.js';
 
+const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+const strings = (value: unknown): string[] => Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
 export function parseToolInfo(tool: ToolDisplay): {
   icon: string;
   action: string;
@@ -16,55 +19,42 @@ export function parseToolInfo(tool: ToolDisplay): {
 
   let action = tool.name;
   let target = '';
-  let detail = '';
+  let detail = tool.detail ?? '';
 
-  let argsObj: any = undefined;
+  let argsObj: Record<string, unknown> = {};
   if (typeof tool.arguments === 'string') {
-    try { argsObj = JSON.parse(tool.arguments); } catch {}
-  } else if (tool.arguments && typeof tool.arguments === 'object') {
-    argsObj = tool.arguments;
+    try { argsObj = object(JSON.parse(tool.arguments)); } catch {}
   }
 
   if (tool.name === 'read_files_batch') {
     action = 'Read';
-    const paths = argsObj?.paths ?? [];
-    if (paths.length === 1) target = paths[0];
+    const paths = strings(argsObj.paths);
+    if (paths.length === 1) target = paths[0]!;
     else if (paths.length > 1) target = `${paths.length} files (${paths.slice(0, 2).join(', ')}${paths.length > 2 ? '…' : ''})`;
   } else if (tool.name === 'apply_edits_batch') {
     action = 'Edited';
-    const edits = argsObj?.edits ?? [];
-    if (edits.length === 1) target = edits[0].path;
-    else if (edits.length > 1) target = `${edits.length} files`;
-    if (Array.isArray(tool.result?.result)) {
-      let added = 0; let removed = 0;
-      for (const res of tool.result.result) {
-        if (res && typeof res.diff === 'string') {
-          for (const line of res.diff.split('\n')) {
-            if (line.startsWith('+') && !line.startsWith('+++')) added++;
-            else if (line.startsWith('-') && !line.startsWith('---')) removed++;
-          }
-        }
-      }
-      if (added || removed) detail = `(+${added} -${removed})`;
-    }
+    const paths = Array.isArray(argsObj.edits) ? argsObj.edits.flatMap(edit => strings([object(edit).path])) : [];
+    if (paths.length === 1) target = paths[0]!;
+    else if (paths.length > 1) target = `${paths.length} files`;
   } else if (tool.name === 'run_bash') {
     action = 'Bash';
-    target = argsObj?.command ? (argsObj.command.length > 35 ? argsObj.command.slice(0, 32) + '…' : argsObj.command) : '';
+    const command = typeof argsObj.command === 'string' ? argsObj.command : '';
+    target = command.length > 35 ? command.slice(0, 32) + '…' : command;
     if (tool.result?.result && typeof tool.result.result === 'object') {
-      const exitCode = (tool.result.result as any).exitCode;
-      if (exitCode !== undefined) detail = exitCode === 0 ? '(exit 0)' : `(exit ${exitCode})`;
+      const exitCode = object(tool.result.result).exitCode;
+      if (exitCode === null || typeof exitCode === 'number') detail = `(exit ${exitCode})`;
     }
   } else if (tool.name === 'load_skills_batch') {
     action = 'Skill';
-    const names = argsObj?.names ?? [];
+    const names = strings(argsObj.names);
     target = names.map((n: string) => '$' + n).join(', ');
   } else if (tool.name === 'inspect_symbol_graph') {
     action = 'Inspect';
-    const names = argsObj?.symbol_names ?? [];
+    const names = strings(argsObj.symbol_names);
     target = names.slice(0, 3).join(', ') + (names.length > 3 ? '…' : '');
   } else if (tool.name === 'get_repo_map') {
     action = 'Graph';
-    target = argsObj?.directory ?? 'repo map';
+    target = typeof argsObj.directory === 'string' ? argsObj.directory : 'repo map';
   }
 
   if (tool.result?.error) {
@@ -72,7 +62,7 @@ export function parseToolInfo(tool: ToolDisplay): {
   }
 
   const color = isFailed ? theme.nimError : isRunning ? theme.brandAccent : theme.nimReady;
-  return { icon, action, target, detail, color };
+  return { icon, action: safeText(action), target: safeText(target), detail: safeText(detail), color };
 }
 
 export function ToolCallBadge({ tool, expanded = false }: { tool: ToolDisplay; expanded?: boolean }) {

@@ -19,6 +19,8 @@ Creare `~/.kairos/config.json` (`%USERPROFILE%\.kairos\config.json` su Windows):
 
 Tutti i campi sono opzionali. Il modello deve avere formato `provider/model`; i livelli di effort devono essere supportati da quel modello. `timeoutMs` è un intero positivo fino a 2147483647. File JSON e istruzioni hanno un limite di 32 KiB ciascuno; errori di lettura, JSON malformato o impostazioni sconosciute interrompono l'avvio con un messaggio di configurazione.
 
+Il file personale può contenere anche `plugins` (array di percorsi ESM) e `mcpServers` (oggetto di configurazioni MCP), insieme alle preferenze sopra. Queste sezioni vengono validate e caricate dall'host delle estensioni; i percorsi plugin relativi partono da `~/.kairos`. Le credenziali MCP devono riferirsi a variabili d'ambiente. La configurazione `.kairos/config.json` del progetto mantiene soltanto le preferenze; le estensioni del progetto fidato restano in `.nim/config.json`.
+
 Scrivere le istruzioni personali in `~/.kairos/system-prompt.md`, per esempio:
 
 ```markdown
@@ -50,6 +52,8 @@ Le sessioni riprese conservano modello ed effort salvati, salvo `--model` e `--e
 La CLI chiede approvazione per edit, shell e tool esterni. `permissions` accetta `allow`, `ask` o `deny` per categoria; `--permissions` imposta tutte e tre. Le categorie mancanti ereditano i livelli inferiori, poi `ask`. L'SDK mantiene `allow` salvo regole esplicite. La [guida ai flussi host](HOST-WORKFLOWS.md) descrive anteprime, undo persistente, riferimenti e coda dei messaggi.
 
 `permissions.rules` aggiunge regole granulari `{kind, pattern, mode}` per percorsi, comandi completi e nomi dei tool esterni. Le regole si accumulano fra livelli e i deny prevalgono. `scope` definisce il perimetro operativo (`none`, `read-only`, `workspace` o `full`, con predefinito `workspace`); `--scope` da CLI o `/scope` nella TUI consentono di modificarlo. `none` disabilita ogni accesso a file e shell; `read-only` limita la lettura entro il workspace senza esporre tool di scrittura; `workspace` vincola letture e modifiche alla radice del progetto; `full` consente l'accesso all'intero dispositivo. `memory` accetta un booleano; `--no-memory` disabilita le note del progetto. `sandbox` accetta `off` o `required`; il secondo richiede il backend Linux/WSL2 con bubblewrap e non ripiega su esecuzione non isolata. Esempi, limiti e precedenze nella [guida avanzata](ADVANCED-WORKFLOWS.md).
+
+In `none` non vengono letti o aggiunti nuovi contesti del repository: grafo, riferimenti `@file`/`@symbol`, istruzioni del workspace e note di progetto. La cronologia già presente resta parte della conversazione. Gli scope `none` e `read-only` bloccano anche background shell, ripristini di file ed effetti esterni; resta possibile fermare task già avviati. I permessi `ask/deny` si applicano anche agli edit esterni in `full`, che mantengono il journal undo. `AgentLoop.setScope()` richiede un agente inattivo, come `/scope` nella TUI; le anteprime filesystem vengono ricontrollate quando vengono applicate.
 
 ## Coordinamento NIM tra processi
 
