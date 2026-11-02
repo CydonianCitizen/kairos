@@ -18,12 +18,12 @@ const BINARY_EXTENSIONS = new Set([
   '.sqlite', '.db', '.lockb'
 ]);
 
-interface IgnoreScope {
+export interface IgnoreScope {
   directory: string;
   rules: Ignore;
 }
 
-function ignored(path: string, scopes: IgnoreScope[]): boolean {
+export function ignored(path: string, scopes: IgnoreScope[]): boolean {
   const parts = path.split('/');
   for (let length = 1; length <= parts.length; length++) {
     const prefix = parts.slice(0, length).join('/') + (length < parts.length ? '/' : '');
@@ -100,13 +100,20 @@ export class SearchTools {
   private async loadIgnoreScopes(root: string, signal?: AbortSignal): Promise<IgnoreScope[]> {
     const scopes: IgnoreScope[] = [];
     const globOptions = { cwd: root, dot: true, onlyFiles: true, followSymbolicLinks: false, ignore: EXCLUDED };
+    const safe = async (p: string): Promise<boolean> => {
+      const absolute = join(root, p);
+      if ((await lstat(absolute)).isSymbolicLink()) return false;
+      const rel = relative(root, await realpath(absolute));
+      return rel !== '..' && !rel.startsWith('..\\') && !rel.startsWith('../') && !isAbsolute(rel);
+    };
     const ignoreFiles = (await fg('**/.gitignore', globOptions)).sort(
       (a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b)
     );
     for (const path of ignoreFiles) {
       signal?.throwIfAborted();
-      const directory = posix.dirname(path);
       try {
+        if (ignored(path, scopes) || !await safe(path)) continue;
+        const directory = posix.dirname(path);
         const content = await readFile(join(root, path), 'utf8');
         scopes.push({
           directory: directory === '.' ? '' : directory,
@@ -203,6 +210,7 @@ export class SearchTools {
     let truncated = false;
 
     for (const rel of candidateFiles) {
+      if (truncated) break;
       options.signal?.throwIfAborted();
       const workspaceRel = prefix ? posix.join(prefix, rel) : rel;
       if (ignored(workspaceRel, scopes)) continue;
@@ -233,6 +241,7 @@ export class SearchTools {
               });
             } else {
               truncated = true;
+              break;
             }
           }
         }

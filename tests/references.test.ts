@@ -121,3 +121,12 @@ it('rejects cancellation and a graph from another workspace before resolving con
   await expect(resolveReferences(root, graph, '@missing', { signal: abort.signal })).rejects.toThrow();
   await expect(resolveReferences(join(root, '..'), graph, '@missing')).rejects.toThrow(/workspace/i);
 });
+
+it('refuses unindexed C and Java files unless explicitly selected with @file:', async () => {
+  await file('.gitignore', 'ignored.c\n');
+  await file('ignored.c', 'int main() { return 0; }');
+  const graph = await indexWorkspace(root);
+  await expect(resolveReferences(root, graph, '@ignored.c')).rejects.toThrow(/not indexed or is ignored/i);
+  const explicit = await resolveReferences(root, graph, '@file:ignored.c');
+  expect(explicit.context).toContain('int main()');
+});

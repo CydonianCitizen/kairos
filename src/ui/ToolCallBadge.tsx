@@ -55,6 +55,19 @@ export function parseToolInfo(tool: ToolDisplay): {
   } else if (tool.name === 'get_repo_map') {
     action = 'Graph';
     target = typeof argsObj.directory === 'string' ? argsObj.directory : 'repo map';
+  } else if (tool.name === 'find_files') {
+    action = 'Find';
+    const pat = typeof argsObj.pattern === 'string' ? argsObj.pattern : (Array.isArray(argsObj.patterns) ? argsObj.patterns.join(', ') : '');
+    target = pat || '**/*';
+    if (typeof argsObj.directory === 'string' && argsObj.directory) {
+      detail = `in ${argsObj.directory}`;
+    }
+  } else if (tool.name === 'search_text') {
+    action = 'Search';
+    target = typeof argsObj.query === 'string' ? argsObj.query : '';
+    if (typeof argsObj.filePattern === 'string' && argsObj.filePattern) {
+      detail = `in ${argsObj.filePattern}`;
+    }
   }
 
   if (tool.result?.error) {

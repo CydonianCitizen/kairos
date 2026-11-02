@@ -12,6 +12,7 @@ import { DiffBlock } from '../src/ui/DiffBlock.js';
 import { StatusBar } from '../src/ui/StatusBar.js';
 import { Banner } from '../src/ui/Banner.js';
 import { ModelPicker } from '../src/ui/ModelPicker.js';
+import { ToolCallBadge, parseToolInfo } from '../src/ui/ToolCallBadge.js';
 import { UiController } from '../src/ui/controller.js';
 import { AgentLoop } from '../src/core/agent-loop.js';
 import { safeText } from '../src/ui/text.js';
@@ -330,4 +331,26 @@ it('displays context window usage and cumulative tokens in the status bar', () =
   expect(narrowFrame).toContain('Ctx 8%');
   expect(narrowFrame).not.toContain('Tok 1.5k');
   narrowApp.unmount();
+});
+
+it('formats tool badges for find_files and search_text', () => {
+  const findBadge = parseToolInfo({
+    name: 'find_files',
+    id: 'find1',
+    arguments: JSON.stringify({ pattern: '**/*.tsx', directory: 'src' }),
+    result: { ok: true, mutated: false },
+  });
+  expect(findBadge.action).toBe('Find');
+  expect(findBadge.target).toBe('**/*.tsx');
+  expect(findBadge.detail).toBe('in src');
+
+  const searchBadge = parseToolInfo({
+    name: 'search_text',
+    id: 'search1',
+    arguments: JSON.stringify({ query: 'useState', filePattern: '*.tsx' }),
+    result: { ok: true, mutated: false },
+  });
+  expect(searchBadge.action).toBe('Search');
+  expect(searchBadge.target).toBe('useState');
+  expect(searchBadge.detail).toBe('in *.tsx');
 });

@@ -87,7 +87,7 @@ interface AgentEvents {
 function validateModel(model: string): void {
   if (typeof model !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(model)) throw new Error('Expected a NIM model ID: provider/model');
 }
-const mentionedPaths=(prompt:string):string[]=>prompt.match(/[\w./\\-]+\.(?:tsx?|jsx?|mjs|cjs|py|rs|go|md|json)\b/g)??[];
+const mentionedPaths=(prompt:string):string[]=>prompt.match(/[\w./\\-]+\.(?:tsx?|jsx?|mjs|cjs|py|rs|go|c|cpp|hpp?|cc|hh|cxx|hxx|java|cs|md|json)\b/g)??[];
 
 /** Reject incomplete streams before any model-proposed side effect. */
 function assemble(chunks: ChatCompletionChunk[]): ChatCompletionAssistantMessageParam {
@@ -614,13 +614,14 @@ export class AgentLoop extends EventEmitter<AgentEvents> {
         for (const steering of this.steering.splice(0)) {
           if(this.scope!=='none'){
             const remaining = this.references.maxChars - this.references.chars - 2;
-            const extra = await resolveReferences(this.options.workspace, this.graph!, steering, { maxChars: Math.max(256, remaining), signal });
-            await this.addInstructions([...extra.references.map(ref=>ref.path),...mentionedPaths(steering)],signal);
-            if (extra.context) {
-              if (remaining < 256) throw new Error('Reference context budget exhausted; use a new turn for additional references');
-              const context = [this.references.context, extra.context].filter(Boolean).join('\n\n');
-              this.references = { context, references: [...this.references.references, ...extra.references], chars: context.length, maxChars: this.references.maxChars };
-              this.emit('onContextUpdate', this.contextSnapshot);
+            if (remaining >= 256) {
+              const extra = await resolveReferences(this.options.workspace, this.graph!, steering, { maxChars: remaining, signal });
+              await this.addInstructions([...extra.references.map(ref=>ref.path),...mentionedPaths(steering)],signal);
+              if (extra.context) {
+                const context = [this.references.context, extra.context].filter(Boolean).join('\n\n');
+                this.references = { context, references: [...this.references.references, ...extra.references], chars: context.length, maxChars: this.references.maxChars };
+                this.emit('onContextUpdate', this.contextSnapshot);
+              }
             }
           }
           this.history.push({ role: 'user', content: steering }); prompt = steering; this.emit('onSteering', steering);

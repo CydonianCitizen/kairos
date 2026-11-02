@@ -24,7 +24,10 @@ export interface ReferenceContext {
 }
 interface Requested { kind?: Reference['kind']; value: string; input: string }
 const MAX_FILE_BYTES = 1024 * 1024;
-const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go']);
+const CODE_EXTENSIONS = new Set([
+  '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go',
+  '.c', '.h', '.cpp', '.hpp', '.cc', '.hh', '.cxx', '.hxx', '.java', '.cs'
+]);
 const PRIVATE_KEY = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/;
 
 function requested(prompt: string): Requested[] {

@@ -3,9 +3,10 @@ import { createRequire } from 'node:module';
 import { extname, join, relative, isAbsolute, posix } from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import fg from 'fast-glob';
-import ignore, { type Ignore } from 'ignore';
+import ignore from 'ignore';
 import { Parser, Language, type Node } from 'web-tree-sitter';
 import { RepoGraph, type FileRecord, type ImportRecord, type SymbolRecord } from './repo-graph.js';
+import { ignored, type IgnoreScope } from '../tools/search-tools.js';
 
 const require = createRequire(import.meta.url);
 const languages: Record<string, string> = {
@@ -194,24 +195,6 @@ function extract(root: Node, path: string, language: string): FileRecord {
   return file;
 }
 
-interface IgnoreScope { directory: string; rules: Ignore }
-function ignored(path: string, scopes: IgnoreScope[]): boolean {
-  const parts = path.split('/');
-  for (let length = 1; length <= parts.length; length++) {
-    const prefix = parts.slice(0, length).join('/') + (length < parts.length ? '/' : '');
-    let blocked = false;
-    for (const scope of scopes) {
-      if (scope.directory && !prefix.startsWith(`${scope.directory}/`)) continue;
-      const local = scope.directory ? prefix.slice(scope.directory.length + 1) : prefix;
-      if (!local) continue;
-      const match = scope.rules.test(local);
-      if (match.ignored) blocked = true;
-      if (match.unignored) blocked = false;
-    }
-    if (blocked) return true;
-  }
-  return false;
-}
 export interface IndexOptions {
   maxFileBytes?: number;
   signal?: AbortSignal;

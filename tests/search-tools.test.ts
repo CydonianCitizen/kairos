@@ -107,6 +107,16 @@ describe('Local Zero-API Search Tools (find_files & search_text)', () => {
       const all = await fsTools.search_text({ query: 'FIND_ME' });
       expect(all.matches.map(m => m.path)).toEqual(['src/code.ts', 'src/style.css']);
     });
+
+    it('enforces limit and truncates search_text early', async () => {
+      for (let i = 0; i < 10; i++) {
+        await createFile(`src/file${i}.ts`, `const MATCH_TARGET = ${i};`);
+      }
+      const limited = await fsTools.search_text({ query: 'MATCH_TARGET', limit: 3 });
+      expect(limited.matches).toHaveLength(3);
+      expect(limited.truncated).toBe(true);
+      expect(limited.totalMatches).toBeGreaterThanOrEqual(4);
+    });
   });
 
   describe('ToolRegistry integration', () => {

@@ -21,7 +21,7 @@ export function StatusBar({ state, columns = 80 }: { state: UiState; columns?: n
   if (state.graph) parts.push(`AST ${state.graph.files}/${state.graph.symbols}${state.graph.diagnostics ? ` !${state.graph.diagnostics}` : ''}`);
   else parts.push('AST …');
   if (state.queued) parts.push(`Q${state.queued}${state.queuePaused ? ' paused' : ''}`);
-  if (state.context?.totalChars && state.context?.totalMaxChars) {
+  if (state.context?.totalChars !== undefined && state.context?.totalMaxChars !== undefined) {
     const pct = Math.min(100, Math.round((state.context.totalChars / state.context.totalMaxChars) * 100));
     const kUsed = (state.context.totalChars / 1000).toFixed(1);
     const kMax = Math.round(state.context.totalMaxChars / 1000);
