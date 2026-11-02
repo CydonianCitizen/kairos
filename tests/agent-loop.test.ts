@@ -39,7 +39,7 @@ it('injects symbol signatures, assembles split tool calls and returns a final re
   expect(result).toMatchObject({ status: 'completed', text: 'Found add.', iterations: 2 });
   expect(JSON.stringify(client.requests[0]!.messages)).toContain('calc.ts:1');
   expect(JSON.stringify(client.requests[0]!.messages)).toContain('function add(a: number, b: number)');
-  expect(client.requests[0]!.tools).toHaveLength(6);
+  expect(client.requests[0]!.tools).toHaveLength(8);
   expect(client.requests[1]!.messages.find(m => m.role === 'tool')).toMatchObject({ tool_call_id: 'inspect' });
   expect(tokens).toEqual(['Found add.']); expect(events).toEqual(['inspect']);
   expect(client.listenerCount('onTokenStream')).toBe(0);

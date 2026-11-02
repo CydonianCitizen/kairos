@@ -22,7 +22,7 @@ export interface UiState {
  graph?:{files:number;symbols:number;diagnostics:number};cooldownUntil:number;cooldownReason:string;lastTool?:ToolDisplay;
  resumeSessions?: SessionInfo[]; resumeError?: string;
  sidePanelOpen?:boolean; sideBusy?:boolean; sideQuestion?:SideQuestionDisplay;
- approval?:ApprovalRequest;context?:{chars:number;maxChars:number;references:number};queue?:QueuedPrompt[];
+ approval?:ApprovalRequest;context?:{chars:number;maxChars:number;references:number;totalChars?:number;totalMaxChars?:number;estimatedTokens?:number;tokens?:{prompt:number;completion:number;total:number}};queue?:QueuedPrompt[];
  selectedQueuedId?:number;queueEdit?:QueueEditState;queuePaused?:boolean;
  rewindPoints?:RewindSummary[];backgroundRunning?:number;scope?:WorkspaceScope;
  keyPanelOpen?:boolean;keySaving?:boolean;keyRequired?:boolean;keyError?:string;keyPath?:string;
@@ -77,7 +77,7 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
    this.update({approval:request,activity:'Awaiting approval',sidePanelOpen:false,modelPickerOpen:false,effortPickerOpen:false,resumeSessions:undefined,rewindPoints:undefined});
    signal?.addEventListener('abort',abort,{once:true});if(signal?.aborted)abort();
   }));
-  const context=(value:{chars:number;maxChars:number;references:unknown[]})=>this.update({context:{chars:value.chars,maxChars:value.maxChars,references:value.references.length}});
+  const context=(value:import('../core/references.js').ReferenceContext)=>this.update({context:{chars:value.chars,maxChars:value.maxChars,references:value.references.length,totalChars:value.totalChars,totalMaxChars:value.totalMaxChars,estimatedTokens:value.estimatedTokens,tokens:value.tokens}});
   const background=(tasks:TaskInfo[])=>this.update({backgroundRunning:tasks.filter(task=>task.status==='running').length});agent.on('onBackgroundUpdate',background);
   const token=(text:string)=>{
    if(this.state.thinkingStream){this.add('thinking',this.state.thinkingStream);this.update({thinkingStream:'',streaming:safeText(text)});}

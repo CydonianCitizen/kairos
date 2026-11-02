@@ -12,7 +12,16 @@ export interface Reference {
   chars: number;
   truncated: boolean;
 }
-export interface ReferenceContext { context: string; references: Reference[]; chars: number; maxChars: number }
+export interface ReferenceContext {
+  context: string;
+  references: Reference[];
+  chars: number;
+  maxChars: number;
+  totalChars?: number;
+  totalMaxChars?: number;
+  estimatedTokens?: number;
+  tokens?: { prompt: number; completion: number; total: number };
+}
 interface Requested { kind?: Reference['kind']; value: string; input: string }
 const MAX_FILE_BYTES = 1024 * 1024;
 const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rs', '.go']);

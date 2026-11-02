@@ -294,3 +294,40 @@ it('keeps the terminal input usable while a turn is running and queues a follow-
  release();await controller.interaction.drain();expect(controller.getSnapshot().history.filter(e=>e.kind==='user').map(e=>e.text)).toEqual(['first','second']);expect(client.count).toBe(2);
  }finally{release();app?.unmount();await controller.close();await rm(root,{recursive:true,force:true});}
 });
+
+it('displays context window usage and cumulative tokens in the status bar', () => {
+  const state = {
+    history: [],
+    model: 'custom/short-model',
+    effort: 'auto' as const,
+    busy: false,
+    activity: 'Ready',
+    streaming: '',
+    graph: { files: 10, symbols: 50, diagnostics: 0 },
+    mode: 'build' as const,
+    queued: 0,
+    sessionId: 'abcd1234ef',
+    cooldownUntil: 0,
+    cooldownReason: '',
+    context: {
+      chars: 500,
+      maxChars: 4000,
+      references: 2,
+      totalChars: 12000,
+      totalMaxChars: 160000,
+      estimatedTokens: 3000,
+      tokens: { prompt: 1000, completion: 500, total: 1500 },
+    },
+  };
+  const wideApp = render(<Box width={130}><StatusBar state={state} columns={130} /></Box>);
+  const wideFrame = wideApp.lastFrame()!;
+  expect(wideFrame).toContain('Ctx 12.0k/160k (8%)');
+  expect(wideFrame).toContain('Tok 1.5k');
+  wideApp.unmount();
+
+  const narrowApp = render(<Box width={90}><StatusBar state={state} columns={90} /></Box>);
+  const narrowFrame = narrowApp.lastFrame()!;
+  expect(narrowFrame).toContain('Ctx 8%');
+  expect(narrowFrame).not.toContain('Tok 1.5k');
+  narrowApp.unmount();
+});

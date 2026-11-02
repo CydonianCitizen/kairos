@@ -21,7 +21,17 @@ export function StatusBar({ state, columns = 80 }: { state: UiState; columns?: n
   if (state.graph) parts.push(`AST ${state.graph.files}/${state.graph.symbols}${state.graph.diagnostics ? ` !${state.graph.diagnostics}` : ''}`);
   else parts.push('AST …');
   if (state.queued) parts.push(`Q${state.queued}${state.queuePaused ? ' paused' : ''}`);
-  if (state.context?.references) parts.push(`Refs ${state.context.references}:${state.context.chars}/${state.context.maxChars}`);
+  if (state.context?.totalChars && state.context?.totalMaxChars) {
+    const pct = Math.min(100, Math.round((state.context.totalChars / state.context.totalMaxChars) * 100));
+    const kUsed = (state.context.totalChars / 1000).toFixed(1);
+    const kMax = Math.round(state.context.totalMaxChars / 1000);
+    parts.push(columns >= 95 ? `Ctx ${kUsed}k/${kMax}k (${pct}%)` : `Ctx ${pct}%`);
+  } else if (state.context?.references) {
+    parts.push(`Refs ${state.context.references}:${state.context.chars}/${state.context.maxChars}`);
+  }
+  if (state.context?.tokens?.total && state.context.tokens.total > 0 && columns >= 110) {
+    parts.push(`Tok ${(state.context.tokens.total / 1000).toFixed(1)}k`);
+  }
   if (state.sideBusy) parts.push('btw…');
   if(state.backgroundRunning)parts.push(`Tasks ${state.backgroundRunning}`);
   const session = state.sessionId ? `#${state.sessionId.slice(0, 8)}` : 'memory';

@@ -164,6 +164,7 @@ export class AgentLoop extends EventEmitter<AgentEvents> {
   private acceptSteering = false;
   private suppressTokens = false;
   private persistError?: Error;
+  private sessionTokens = { prompt: 0, completion: 0, total: 0 };
 
   constructor(private readonly options: AgentOptions) {
     super();
@@ -514,6 +515,7 @@ export class AgentLoop extends EventEmitter<AgentEvents> {
   clear(): void {
     this.assertIdle();
     this.history = []; this.memory = ''; this.sideHistory = [];
+    this.sessionTokens = { prompt: 0, completion: 0, total: 0 };
     this.extensions?.clearActiveSkills();
     this.persistChange();
   }
@@ -563,6 +565,15 @@ export class AgentLoop extends EventEmitter<AgentEvents> {
       messages = create();
     }
     if (removedMessages) this.emit('onCompaction', { removedMessages });
+    const totalChars = JSON.stringify({ messages, tools: this.registry.schemas(this.mode) }).length;
+    this.references = {
+      ...this.references,
+      totalChars,
+      totalMaxChars: this.maxContextChars,
+      estimatedTokens: Math.round(totalChars / 4),
+      tokens: { ...this.sessionTokens },
+    };
+    this.emit('onContextUpdate', this.contextSnapshot);
     return messages;
   }
 
@@ -622,6 +633,21 @@ export class AgentLoop extends EventEmitter<AgentEvents> {
         signal?.throwIfAborted();
         if (!response.ok) return await this.finishTurn({ status: 'error', text: '', iterations, error: response.error });
         const assistant = assemble(response.value);
+        let pTok = 0;
+        let cTok = 0;
+        for (const chunk of response.value) {
+          if ((chunk as any).usage) {
+            pTok = Math.max(pTok, (chunk as any).usage.prompt_tokens ?? 0);
+            cTok = Math.max(cTok, (chunk as any).usage.completion_tokens ?? 0);
+          }
+        }
+        if (!pTok) pTok = Math.round(JSON.stringify(messages).length / 4);
+        if (!cTok) cTok = Math.round((typeof assistant.content === 'string' ? assistant.content.length : 0) / 4);
+        this.sessionTokens.prompt += pTok;
+        this.sessionTokens.completion += cTok;
+        this.sessionTokens.total += (pTok + cTok);
+        this.references = { ...this.references, tokens: { ...this.sessionTokens } };
+        this.emit('onContextUpdate', this.contextSnapshot);
         const calls = assistant.tool_calls ?? [];
         if (calls.length) this.toolGroupStart = this.history.length;
         this.history.push(assistant);
