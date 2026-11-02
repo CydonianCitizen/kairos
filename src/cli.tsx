@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadEnvironment } from './config/env.js';
+import { loadEnvironment, personalEnvPath, savePersonalApiKey } from './config/env.js';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { render } from 'ink';
@@ -34,7 +34,9 @@ async function main():Promise<void>{
   memory:options.noMemory?false:undefined,sandbox:options.sandbox,scope:options.scope}});
  if(options.json||options.rpc){console.log=console.info=console.debug=(...args:unknown[])=>console.error(...args);}
  const timeoutMs=options.timeoutMs??(process.env.NVIDIA_TIMEOUT_MS===undefined?settings.timeoutMs:Number(process.env.NVIDIA_TIMEOUT_MS));
- const client=new NimClient({timeoutMs});
+ const interactive=options.prompt===undefined&&!options.rpc&&!options.checkModels;
+ const needsKey=!process.env.NVIDIA_API_KEY?.trim();
+ const client=new NimClient({timeoutMs,allowMissingApiKey:interactive});
  if(options.checkModels){
   const abort=new AbortController();const cancel=()=>abort.abort();process.on('SIGINT',cancel);process.on('SIGTERM',cancel);
   try{
@@ -76,8 +78,11 @@ async function main():Promise<void>{
   }finally{detach();try{await interaction.close();}finally{process.off('SIGINT',stop);process.off('SIGTERM',stop);await finishPreferences();}}
   return;
  }
- const catalog=await loadModelCatalog(client);
- const controller=new UiController(agent,catalog.models,{showThinking:options.thinking});
+ const catalog=needsKey?{models:MODELS.map(model=>model.id)}:await loadModelCatalog(client);
+ const controller=new UiController(agent,catalog.models,{showThinking:options.thinking,keySettings:{
+  path:personalEnvPath(),required:needsKey,save:async key=>{
+   await savePersonalApiKey(key);client.setApiKey(key);process.env.NVIDIA_API_KEY=key.trim();
+  }}});
  // End input before Ink restores the Windows TTY, so it cannot queue another console read.
  const endInput=()=>{process.stdin.push(null);};controller.on('exit',endInput);
  const instance=render(<App controller={controller} version={VERSION}/>,{exitOnCtrlC:false});

@@ -34,13 +34,15 @@ On machines where filesystem-heavy tests contend for resources, run the same com
 npm test -- --maxWorkers=4
 ```
 
-To use NIM across repositories, create a personal `~/.kairos/.env` once. On Windows, use `%USERPROFILE%\.kairos\.env`:
+Start `kairos` and enter `/key` to save your NVIDIA API key once for all repositories. If no key is configured, the masked setup opens automatically. Enter saves; Esc cancels (or exits first-run setup). The key is stored in `~/.kairos/.env` (`%USERPROFILE%\.kairos\.env` on Windows), outside the repository. You can also create that file manually:
 
 ```dotenv
 NVIDIA_API_KEY=your_nvidia_api_key
 ```
 
-The CLI resolves the key in this order: **existing environment variable → selected workspace's `.env` → `~/.kairos/.env`**. For project-specific credentials, copy `.env.example` to `.env` and set the key. `.env` is excluded from Git. Tests use simulated HTTP responses and need no NVIDIA credentials.
+`/key` activates the saved key immediately for this process. Existing personal `.env` contents are backed up to `.env.bak`; unrelated variables and comments are preserved. The input stays masked and is not added to conversation or prompt history. Saving does not validate the key against NVIDIA.
+
+On subsequent launches, the CLI resolves the key in this order: **existing environment variable → selected workspace's `.env` → `~/.kairos/.env`**. For project-specific credentials, copy `.env.example` to `.env` and set the key. `.env` is excluded from Git. Tests use simulated HTTP responses and need no NVIDIA credentials.
 
 Startup preferences live in `~/.kairos/config.json`; personal instructions go in `~/.kairos/system-prompt.md`, without rebuilding. The [configuration guide](docs/CONFIGURATION.md) explains precedence and `kairos --check-models` for explicit live endpoint checks. Historical results are in [NIM verification](docs/NIM-VERIFICATION.md).
 
@@ -293,6 +295,7 @@ The TUI uses React 18, Ink 5, and `ink-text-input` in searchable pickers. The ma
 
 | Command | Behavior |
 | --- | --- |
+| `/key` | Save the NVIDIA API key globally through a masked input field |
 | `/model` | Searchable model picker; ↑/↓ selects, Enter confirms, Esc cancels |
 | `/model provider/model` | Switch models while preserving conversation |
 | `/effort [level]` | Open the effort picker or set a supported level |

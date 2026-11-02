@@ -16,6 +16,7 @@ export interface ToolDisplay { name:string;id:string;result?:ToolResult;argument
 export interface HistoryEntry { id:number;kind:'user'|'assistant'|'info'|'error'|'tool'|'diff'|'thinking';text:string;tool?:ToolDisplay;fullDiff?:boolean }
 export interface SideQuestionDisplay extends SideQuestionEvent { streaming:string; result?:AgentResult; cooldownUntil:number; cooldownReason:string }
 export interface QueueEditState {id:number;draft:Draft;previousDraft:Draft;error?:string}
+export interface KeySettings {path:string;required?:boolean;save:(key:string)=>Promise<void>}
 export interface UiState {
  history:HistoryEntry[];busy:boolean;activity:string;streaming:string;thinkingStream?:string;showThinking?:boolean;model:string;modelPickerOpen?:boolean;effort?:Effort;effortPickerOpen?:boolean;mode?:AgentMode;sessionId?:string;queued?:number;
  graph?:{files:number;symbols:number;diagnostics:number};cooldownUntil:number;cooldownReason:string;lastTool?:ToolDisplay;
@@ -24,8 +25,10 @@ export interface UiState {
  approval?:ApprovalRequest;context?:{chars:number;maxChars:number;references:number};queue?:QueuedPrompt[];
  selectedQueuedId?:number;queueEdit?:QueueEditState;queuePaused?:boolean;
  rewindPoints?:RewindSummary[];backgroundRunning?:number;scope?:WorkspaceScope;
+ keyPanelOpen?:boolean;keySaving?:boolean;keyRequired?:boolean;keyError?:string;keyPath?:string;
 }
 const HELP=`/model [provider/model]  open model picker or select directly
+/key                     save the NVIDIA API key in personal configuration
 /effort [level]         choose model reasoning effort
 /plan | /build           switch execution mode (idle only)
 /graph [directory]       rebuild and inspect the local graph
@@ -59,10 +62,13 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
  private submittedPrompts: string[] = [];
  private lastDiffs: string[] = [];
  private approvalResolve?: (allowed:boolean)=>void;
+ private readonly keySettings?:KeySettings;
  readonly interaction:Interaction;
- constructor(readonly agent:AgentLoop,readonly availableModels:readonly string[]=MODELS.map(model=>model.id),options:{showThinking?:boolean}={}){
+ constructor(readonly agent:AgentLoop,readonly availableModels:readonly string[]=MODELS.map(model=>model.id),options:{showThinking?:boolean;keySettings?:KeySettings}={}){
   super();this.interaction=new Interaction(agent);
+  this.keySettings=options.keySettings;
   this.state={history:[],busy:false,activity:'Ready',streaming:'',showThinking:options.showThinking??false,model:agent.model,effort:agent.effort,mode:agent.mode,scope:agent.scope,queued:0,queue:[],cooldownUntil:0,cooldownReason:''};
+  Object.assign(this.state,{keyPanelOpen:!!options.keySettings?.required,keyRequired:!!options.keySettings?.required,keyPath:options.keySettings?.path});
   agent.setApprovalHandler((request,signal)=>new Promise<boolean>((resolve,reject)=>{
    if(this.disposed){reject(new Error('Approval UI is closed'));return;}
    let settled=false;
@@ -129,6 +135,16 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
   this.detach=()=>{agent.off('onBackgroundUpdate',background);agent.off('onContextUpdate',context);agent.off('onTokenStream',token);agent.off('onReasoningStream',reasoning);agent.off('onRateLimitWait',wait);agent.off('onGraphUpdate',graph);agent.off('onCompaction',compact);agent.off('onSession',session);agent.off('onSteering',steering);agent.off('onToolStart',start);agent.off('onToolEnd',end);agent.off('onSideStart',sideStart);agent.off('onSideTokenStream',sideToken);agent.off('onSideRateLimitWait',sideWait);agent.off('onSideEnd',sideEnd);this.interaction.off('start',turnStart);this.interaction.off('result',completed);this.interaction.off('queue',queue);};
  }
  getSnapshot=():UiState=>this.state;
+ async saveApiKey(key:string):Promise<void>{
+  if(!this.state.keyPanelOpen||!this.keySettings||this.state.keySaving||this.disposed)return;
+  if(this.interaction.busy||this.interaction.sideBusy){this.update({keyError:'Wait for active work to finish before saving.'});return;}
+  this.update({keySaving:true,keyError:undefined});
+  try{
+   await this.interaction.action(()=>this.keySettings!.save(key));
+   this.update({keyPanelOpen:false,keyRequired:false});this.add('info','API key saved to personal configuration.');
+  }catch{this.update({keyError:'Could not save API key. Check the key and personal configuration permissions, then try again.'});}
+  finally{this.update({keySaving:false});}
+ }
  selectQueued(direction:-1|1):void{
   const entries=this.interaction.queueSnapshot;if(!entries.length||this.state.queueEdit)return;
   const index=entries.findIndex(item=>item.id===this.state.selectedQueuedId);
@@ -198,8 +214,8 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
  hideSideQuestion():void{this.update({sidePanelOpen:false});}
  cancelSideQuestion():void{this.interaction.cancelSide();this.hideSideQuestion();}
  clearSideQuestions():void{this.agent.clearSideQuestions();this.update({sidePanelOpen:false,sideQuestion:undefined});}
- cancelOrExit():void{if(this.state.sidePanelOpen||this.state.modelPickerOpen||this.state.effortPickerOpen||this.state.resumeSessions||this.state.rewindPoints||this.state.busy||this.interaction.busy)this.cancel();else this.emit('exit');}
- cancel():void{if(this.state.approval){this.interaction.cancel();this.update({activity:'Cancelling'});return;}if(this.state.sidePanelOpen){this.hideSideQuestion();return;}if(this.state.modelPickerOpen||this.state.effortPickerOpen||this.state.resumeSessions||this.state.rewindPoints){this.update({modelPickerOpen:false,effortPickerOpen:false,resumeSessions:undefined,resumeError:undefined,rewindPoints:undefined});return;}this.interaction.cancel();if(this.state.busy)this.update({activity:'Cancelling'});}
+ cancelOrExit():void{if(this.state.keyPanelOpen||this.state.sidePanelOpen||this.state.modelPickerOpen||this.state.effortPickerOpen||this.state.resumeSessions||this.state.rewindPoints||this.state.busy||this.interaction.busy)this.cancel();else this.emit('exit');}
+ cancel():void{if(this.state.keyPanelOpen){if(this.state.keySaving)return;if(this.state.keyRequired)this.emit('exit');else this.update({keyPanelOpen:false,keyError:undefined});return;}if(this.state.approval){this.interaction.cancel();this.update({activity:'Cancelling'});return;}if(this.state.sidePanelOpen){this.hideSideQuestion();return;}if(this.state.modelPickerOpen||this.state.effortPickerOpen||this.state.resumeSessions||this.state.rewindPoints){this.update({modelPickerOpen:false,effortPickerOpen:false,resumeSessions:undefined,resumeError:undefined,rewindPoints:undefined});return;}this.interaction.cancel();if(this.state.busy)this.update({activity:'Cancelling'});}
  private async sideQuestion(args:string):Promise<void>{
   if((!args&&this.state.sideQuestion)||this.interaction.sideBusy){this.update({sidePanelOpen:true});return;}
   let model=this.agent.model;let question=args;
@@ -217,6 +233,13 @@ export class UiController extends EventEmitter<{change:[];exit:[]}> {
  }
  async submit(input:string):Promise<void>{
   const prompt=input.replace(/\r\n?/g,'\n').trim();if(!prompt||this.disposed)return;
+  if(/^\/key(?:\s|$)/.test(prompt)){
+   if(prompt!=='/key'){this.add('error','Use /key without arguments; enter the key in the masked field.');return;}
+   if(!this.keySettings){this.add('error','API key settings are unavailable in this host.');return;}
+   if(this.interaction.busy||this.interaction.sideBusy||this.interaction.queued){this.add('error','Wait for active work and queued prompts to finish before changing the API key.');return;}
+   this.update({keyPanelOpen:true,keyError:undefined,modelPickerOpen:false,effortPickerOpen:false,resumeSessions:undefined,rewindPoints:undefined,sidePanelOpen:false});return;
+  }
+  if(this.state.keyPanelOpen)return;
   const queue=prompt.match(/^\/queue(?:\s+([\s\S]*))?$/);
   if(queue){
    const args=queue[1]?.trim()??'';

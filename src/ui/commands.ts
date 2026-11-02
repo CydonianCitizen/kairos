@@ -3,6 +3,7 @@ export interface CommandSuggestion { name: string; description: string; argument
 export const COMMANDS: CommandSuggestion[] = [
   { name: '/model', description: 'Choose a model' },
   { name: '/effort', description: 'Choose reasoning effort' },
+  { name: '/key', description: 'Save your NVIDIA API key globally' },
   { name: '/mode', description: 'Set plan or build mode', argument: 'plan|build' },
   { name: '/plan', description: 'Switch to read-only planning' },
   { name: '/build', description: 'Enable coding and tools' },

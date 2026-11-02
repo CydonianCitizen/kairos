@@ -2,6 +2,14 @@
 
 La chiave resta nell'ambiente oppure in un file `.env`, con precedenza ambiente → `.env` del workspace → `~/.kairos/.env`. Non inserire credenziali nei file JSON: impostazioni sconosciute come `apiKey` vengono rifiutate.
 
+## Chiave API globale
+
+Avviare `kairos` e usare `/key`, senza argomenti. Il pannello maschera il valore: Invio salva, Esc annulla. Senza chiave configurata il pannello si apre automaticamente; annullare termina l'avvio.
+
+La chiave viene salvata in `~/.kairos/.env` (`%USERPROFILE%\.kairos\.env` su Windows) e diventa subito attiva nel processo corrente. Il file è esterno al repository e viene caricato anche quando KAIROS parte in un'altra cartella. Le altre variabili e i commenti vengono conservati; prima di sostituire un file esistente se ne salva una copia esatta in `.env.bak`. I nuovi file usano permessi privati sui sistemi POSIX.
+
+Il valore non entra nella cronologia dei prompt o nella conversazione, né viene inviato a NIM durante il salvataggio. Il salvataggio non verifica la validità della chiave presso NVIDIA. Al prossimo avvio restano valide le precedenze ambiente → `.env` del workspace → file personale: rimuovere gli override precedenti se si desidera usare sempre la chiave globale. Le modalità `--prompt`, `--rpc` e `--check-models` richiedono una chiave già configurata.
+
 ## Preferenze e istruzioni
 
 Creare `~/.kairos/config.json` (`%USERPROFILE%\.kairos\config.json` su Windows):

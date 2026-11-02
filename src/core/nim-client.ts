@@ -19,6 +19,7 @@ export type NimResult<T> = { ok: true; value: T } | { ok: false; error: string; 
 export type CompletionInput = Omit<ChatCompletionCreateParamsNonStreaming, 'model' | 'stream'> & { model?: string; effort?: Effort; chat_template_kwargs?: Record<string, unknown> };
 export interface NimClientOptions {
   apiKey?: string;
+  allowMissingApiKey?: boolean;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
   parallelToolCalls?: boolean;
@@ -28,22 +29,27 @@ export interface NimClientOptions {
 /** All instances share one FIFO limiter in this process. SDK retries are disabled. */
 export class NimClient extends EventEmitter<NimEvents> {
   private readonly options: NimClientOptions;
-  private readonly sdk: OpenAI;
+  private sdk?: OpenAI;
   private readonly timeoutMs: number;
   private readonly parallelToolCalls?: boolean;
-  private readonly apiKey: string;
+  private apiKey: string;
+  private pendingRequests = 0;
   private lease?: NimLease;
   constructor(options: NimClientOptions = {}) {
     super();
     const apiKey = options.apiKey ?? process.env.NVIDIA_API_KEY;
-    if (!apiKey?.trim()) throw new Error('NVIDIA_API_KEY is required');
-    this.apiKey = apiKey;
+    if (!apiKey?.trim() && !options.allowMissingApiKey) throw new Error('NVIDIA_API_KEY is required');
+    this.apiKey = apiKey?.trim() ?? '';
     this.timeoutMs = options.timeoutMs ?? Number(process.env.NVIDIA_TIMEOUT_MS ?? 300000);
     if (!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs < 1 || this.timeoutMs > 2147483647) throw new Error('NVIDIA_TIMEOUT_MS / timeoutMs must be a positive integer up to 2147483647');
     this.options = { ...options, apiKey, timeoutMs: this.timeoutMs };
     this.parallelToolCalls = options.parallelToolCalls;
-    const transport = options.fetch ?? globalThis.fetch;
-    this.sdk = new OpenAI({ apiKey, baseURL: NIM_BASE_URL, maxRetries: 0,
+    if (this.apiKey) this.sdk = this.createSdk(this.apiKey);
+  }
+
+  private createSdk(apiKey: string): OpenAI {
+    const transport = this.options.fetch ?? globalThis.fetch;
+    return new OpenAI({ apiKey, baseURL: NIM_BASE_URL, maxRetries: 0,
       timeout: this.timeoutMs, fetch: async (input, init) => {
         // Measure actual HTTP dispatch, not SDK preparation (which takes variable time).
         await this.wait(Math.max(0, lastStart + 1600 - Date.now()), 'pacing', 0, init?.signal ?? undefined);
@@ -58,6 +64,16 @@ export class NimClient extends EventEmitter<NimEvents> {
   }
 
   fork(): NimClient { return new NimClient(this.options); }
+
+  setApiKey(value: string): void {
+    if (this.pendingRequests) throw new Error('Cannot change API key while requests are pending');
+    const key = value.trim();
+    if (!/^[A-Za-z0-9._/-]{1,4096}$/.test(key)) throw new Error('Invalid API key');
+    const sdk = this.createSdk(key);
+    this.sdk = sdk;
+    this.apiKey = key;
+    this.options.apiKey = key;
+  }
 
   private params(input: CompletionInput): ChatCompletionCreateParamsNonStreaming {
     const model = input.model ?? DEFAULT_MODEL;
@@ -86,6 +102,8 @@ export class NimClient extends EventEmitter<NimEvents> {
   }
 
   private execute<T>(operation: () => Promise<T>, signal?: AbortSignal, canRetry = () => true, model?: string): Promise<NimResult<T>> {
+    if (!this.sdk) return Promise.resolve({ ok: false, error: 'NVIDIA_API_KEY is required. Use /key to configure it.' });
+    this.pendingRequests++;
     // Bottleneck's own delay happens before the callback; expose it to the UI too.
     const queuedCountdown = setInterval(() => {
       const remainingMs = Math.max(0, lastStart + 1600 - Date.now());
@@ -132,17 +150,17 @@ export class NimClient extends EventEmitter<NimEvents> {
       } finally { this.lease = undefined; await lease?.release(); }
     }).catch((error: unknown): NimResult<T> => ({ ok: false,
       error: signal?.aborted ? 'Request cancelled' : error instanceof Error ? error.message : String(error) }))
-      .finally(() => clearInterval(queuedCountdown));
+      .finally(() => { clearInterval(queuedCountdown); this.pendingRequests--; });
   }
 
   complete(input: CompletionInput, signal?: AbortSignal): Promise<NimResult<ChatCompletion>> {
-    return this.execute(() => this.sdk.chat.completions.create(this.params(input), { signal }), signal, () => true, input.model ?? DEFAULT_MODEL);
+    return this.execute(() => this.sdk!.chat.completions.create(this.params(input), { signal }), signal, () => true, input.model ?? DEFAULT_MODEL);
   }
 
   listModels(signal?: AbortSignal): Promise<NimResult<string[]>> {
     // Discovery is optional metadata: use the same pacing, but fall back instead of retrying.
     return this.execute(async () => {
-      const page = await this.sdk.models.list({ signal, timeout: 5000 });
+      const page = await this.sdk!.models.list({ signal, timeout: 5000 });
       return page.data.map(model => model.id);
     }, signal, () => false);
   }
@@ -151,7 +169,7 @@ export class NimClient extends EventEmitter<NimEvents> {
     let received = false;
     return this.execute(async () => {
       const chunks: ChatCompletionChunk[] = [];
-      const stream = await this.sdk.chat.completions.create({ ...this.params(input), stream: true }, { signal });
+      const stream = await this.sdk!.chat.completions.create({ ...this.params(input), stream: true }, { signal });
       for await (const chunk of stream) {
         received = true;
         chunks.push(chunk);

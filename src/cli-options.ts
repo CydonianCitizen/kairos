@@ -74,8 +74,9 @@ Usage: kairos [options]
   --json --prompt <text>      JSONL events and final result
   --rpc                      JSON-RPC over stdin/stdout
 
-Interactive commands: /model /effort /plan /build /undo /rewind /tasks /memory /context /sessions /resume /rename /branch /btw /new /compact
+Interactive commands: /key /model /effort /plan /build /undo /rewind /tasks /memory /context /sessions /resume /rename /branch /btw /new /compact
                       /skills /skill /extensions /mcp /steer /thinking /scope /queue /help /exit
+Use /key for masked global key setup; opens automatically when no key is configured.
 NVIDIA_API_KEY lookup: environment > workspace .env > ~/.kairos/.env.
 Defaults: ~/.kairos/config.json; trusted project overrides: .kairos/config.json.
 Optional personal instructions: ~/.kairos/system-prompt.md.

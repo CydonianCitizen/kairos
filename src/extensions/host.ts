@@ -51,7 +51,7 @@ export interface Skill {
   content: string;
 }
 
-const reserved = new Set(['help','model','effort','mode','plan','build','graph','clear','compact','exit','sessions','resume','rename','branch','btw','new','skills','skill','extensions','mcp','steer','queue']);
+const reserved = new Set(['key','help','model','effort','mode','plan','build','graph','clear','compact','exit','sessions','resume','rename','branch','btw','new','skills','skill','extensions','mcp','steer','queue']);
 const ajv = new Ajv({ strict: false, allErrors: false, validateFormats: false });
 const schemas: Record<string, Record<string, unknown>> = {
   load_skills_batch: { type: 'object', properties: { names: { type: 'array', minItems: 1, maxItems: 20, items: { type: 'string' } } }, required: ['names'], additionalProperties: false },
