@@ -31,17 +31,140 @@ export function validateShell(command: string, timeoutMs: number): void {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 300000) throw new Error('timeoutMs must be between 1 and 300000');
 }
 
-async function findBash(bashPath?: string): Promise<string> {
-  if (bashPath || process.env.BASH_PATH) return bashPath ?? process.env.BASH_PATH!;
-  if (process.platform === 'win32') {
-    for (const base of [process.env.ProgramFiles, process.env.LOCALAPPDATA && join(process.env.LOCALAPPDATA, 'Programs')]) {
-      if (!base) continue;
-      const bash = join(base, 'Git', 'bin', 'bash.exe');
-      try { await access(bash); return bash; } catch { /* Try the next installation. */ }
+let cachedBash: string | undefined;
+
+export function resetBashCache(): void {
+  cachedBash = undefined;
+}
+
+const envVar = (name: string): string | undefined =>
+  process.env[name] ?? process.env[name.toUpperCase()] ?? process.env[name.toLowerCase()];
+
+export async function findBash(bashPath?: string): Promise<string> {
+  const envBash = envVar('BASH_PATH');
+  if (bashPath || envBash) return bashPath ?? envBash!;
+  if (process.platform !== 'win32') return 'bash';
+
+  if (cachedBash) {
+    try {
+      await access(cachedBash);
+      return cachedBash;
+    } catch {
+      cachedBash = undefined;
     }
-    throw new Error('Install Git Bash or set BASH_PATH to bash.exe');
   }
-  return 'bash';
+
+  const systemRoot = envVar('SystemRoot') ?? 'C:\\Windows';
+  const system32 = join(systemRoot, 'System32').toLowerCase();
+  const wslFallbacks: string[] = [];
+
+  // 1. Scan PATH environment variable directories
+  const pathEnv = envVar('PATH') ?? '';
+  const pathDirs = pathEnv.split(';').map(d => d.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+  for (const dir of pathDirs) {
+    const candidate = join(dir, 'bash.exe');
+    try {
+      await access(candidate);
+      if (candidate.toLowerCase().startsWith(system32)) {
+        wslFallbacks.push(candidate);
+      } else {
+        cachedBash = candidate;
+        return candidate;
+      }
+    } catch {
+      // not in this dir
+    }
+  }
+
+  const programFiles = envVar('ProgramFiles');
+  const programFilesX86 = envVar('ProgramFiles(x86)');
+  const localAppData = envVar('LOCALAPPDATA');
+  const userProfile = envVar('USERPROFILE');
+  const chocoInstall = envVar('ChocolateyInstall');
+  const programData = envVar('ProgramData');
+
+  // 2. Known standard installation locations on Windows
+  const standardLocations: (string | undefined)[] = [
+    // Git for Windows (64-bit and 32-bit Program Files)
+    programFiles && join(programFiles, 'Git', 'bin', 'bash.exe'),
+    programFiles && join(programFiles, 'Git', 'usr', 'bin', 'bash.exe'),
+    programFilesX86 && join(programFilesX86, 'Git', 'bin', 'bash.exe'),
+    programFilesX86 && join(programFilesX86, 'Git', 'usr', 'bin', 'bash.exe'),
+    // Per-user Git for Windows
+    localAppData && join(localAppData, 'Programs', 'Git', 'bin', 'bash.exe'),
+    localAppData && join(localAppData, 'Programs', 'Git', 'usr', 'bin', 'bash.exe'),
+    // Root Git installation
+    'C:\\Git\\bin\\bash.exe',
+    'C:\\Git\\usr\\bin\\bash.exe',
+    // MSYS2 64-bit and 32-bit
+    'C:\\msys64\\usr\\bin\\bash.exe',
+    'C:\\msys64\\bin\\bash.exe',
+    'C:\\msys32\\usr\\bin\\bash.exe',
+    'C:\\msys32\\bin\\bash.exe',
+    // Scoop
+    userProfile && join(userProfile, 'scoop', 'apps', 'git', 'current', 'bin', 'bash.exe'),
+    userProfile && join(userProfile, 'scoop', 'apps', 'git', 'current', 'usr', 'bin', 'bash.exe'),
+    userProfile && join(userProfile, 'scoop', 'shims', 'bash.exe'),
+    // Chocolatey
+    chocoInstall && join(chocoInstall, 'bin', 'bash.exe'),
+    join(programData ?? 'C:\\ProgramData', 'chocolatey', 'bin', 'bash.exe'),
+    // Cygwin
+    'C:\\cygwin64\\bin\\bash.exe',
+    'C:\\cygwin\\bin\\bash.exe',
+  ];
+
+  for (const loc of standardLocations) {
+    if (!loc) continue;
+    try {
+      await access(loc);
+      cachedBash = loc;
+      return loc;
+    } catch {
+      // not in this location
+    }
+  }
+
+  // 3. Fallback: try where.exe query
+  const whereFound = await new Promise<string[]>(resolve => {
+    try {
+      const cp = spawn('where.exe', ['bash.exe'], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+      let stdout = '';
+      cp.stdout?.setEncoding('utf8');
+      cp.stdout?.on('data', chunk => { stdout += chunk; });
+      cp.once('close', code => {
+        if (code === 0 && stdout.trim()) {
+          resolve(stdout.split(/\r?\n/).map(s => s.trim()).filter(Boolean));
+        } else {
+          resolve([]);
+        }
+      });
+      cp.once('error', () => resolve([]));
+    } catch {
+      resolve([]);
+    }
+  });
+
+  for (const loc of whereFound) {
+    try {
+      await access(loc);
+      if (loc.toLowerCase().startsWith(system32)) {
+        wslFallbacks.push(loc);
+      } else {
+        cachedBash = loc;
+        return loc;
+      }
+    } catch {}
+  }
+
+  // 4. Fallback to WSL launcher if found as last resort
+  if (wslFallbacks.length > 0) {
+    cachedBash = wslFallbacks[0];
+    return wslFallbacks[0]!;
+  }
+
+  throw new Error(
+    'No compatible Bash executable found on Windows. Please install Git for Windows (https://git-scm.com/download/win), MSYS2 (https://www.msys2.org), or set the BASH_PATH environment variable to bash.exe.'
+  );
 }
 
 async function terminateTree(child: ChildProcess): Promise<void> {
